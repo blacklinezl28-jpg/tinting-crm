@@ -4,6 +4,40 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
+# --- Конфігурація сторінки ---
+st.set_page_config(
+    page_title="Detailing & Tinting CRM", page_icon="🚗", layout="wide"
+)
+
+# --- Налаштування безпеки (Пароль) ---
+SYSTEM_PASSWORD = "blzl"  # <--- Можете змінити пароль тут
+
+
+def check_password():
+  if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+  if not st.session_state["authenticated"]:
+    st.title("🔒 Авторизація в CRM-системі")
+    st.write(
+        "Введіть пароль для доступу до бази даних та управлінь студією:"
+    )
+
+    entered_password = st.text_input("Пароль", type="password")
+    if st.button("Увійти"):
+      if entered_password == SYSTEM_PASSWORD:
+        st.session_state["authenticated"] = True
+        st.rerun()
+      else:
+        st.error("Невірний пароль!")
+    return False
+  return True
+
+
+if not check_password():
+  st.stop()
+
+
 # --- Ініціалізація бази даних ---
 DB_NAME = "tinting_crm.db"
 
@@ -51,7 +85,6 @@ def init_db():
         )
     """)
 
-  # Таблиця додаткових розхідників
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS supplies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,18 +161,18 @@ def run_query(query, params=(), fetch=True):
     conn.close()
 
 
-st.set_page_config(
-    page_title="Detailing & Tinting CRM", page_icon="🚗", layout="wide"
-)
+# --- Зберігаємо стан вмикання функцій у Session State ---
+if "enable_photos" not in st.session_state:
+  st.session_state.enable_photos = True
+if "enable_salaries" not in st.session_state:
+  st.session_state.enable_salaries = True
+if "enable_supplies" not in st.session_state:
+  st.session_state.enable_supplies = True
 
-# --- Налаштування додаткових функцій у сайдбарі ---
+
+# --- Меню CRM ---
 st.sidebar.title("🚗 Меню CRM")
-
 st.sidebar.divider()
-st.sidebar.subheader("⚙️ Увімкнення функцій")
-enable_photos = st.sidebar.checkbox("📸 Фотофіксація авто", value=True)
-enable_salaries = st.sidebar.checkbox("💵 Зарплата майстрів", value=True)
-enable_supplies = st.sidebar.checkbox("🧴 Облік розхідників", value=True)
 
 menu_options = [
     "📊 Головний екран (Dashboard)",
@@ -149,12 +182,12 @@ menu_options = [
     "📦 Склад плівок",
 ]
 
-if enable_supplies:
+if st.session_state.enable_supplies:
   menu_options.append("🧴 Розхідні матеріали")
-if enable_salaries:
+if st.session_state.enable_salaries:
   menu_options.append("💵 Зарплата майстрів")
 
-menu_options.append("💰 Фінанси та Звіти")
+menu_options.extend(["💰 Фінанси та Звіти", "⚙️ Налаштування системи"])
 
 menu = st.sidebar.selectbox("Виберіть розділ", menu_options)
 
@@ -212,63 +245,46 @@ if menu == "📊 Головний екран (Dashboard)":
   col1, col2, col3, col4 = st.columns(4)
   col1.metric("💰 Каса сьогодні", f"{cash_today:,.0f} грн")
   col2.metric("💳 Перекази сьогодні", f"{transfer_today:,.0f} грн")
-  col3.metric("📈 Чистий прибуток", f"{profit_today:,.0f} грн")
-  col4.metric("📅 Записів сьогодні", f"{appointments_count}")
+  col3.metric("📈 Прибуток", f"{profit_today:,.0f} грн")
+  col4.metric("📅 Записів", f"{appointments_count}")
 
   col5, col6, col7 = st.columns(3)
-  col5.metric("🚗 Авто в роботі", f"{cars_in_work}")
+  col5.metric("🚗 В роботі", f"{cars_in_work}")
 
+  # Оптимізований пошук найближчого запису з обрізанням секунд
   next_app = run_query(
       """SELECT a.time, c.car_brand || ' ' || c.car_model as car FROM appointments a 
                JOIN cars c ON a.car_id = c.id 
                WHERE a.date = ? AND a.status = 'Заплановано' ORDER BY a.time ASC LIMIT 1""",
       (today_str,),
   )
-  next_text = (
-      f"{next_app.iloc[0]['time']} — {next_app.iloc[0]['car']}"
-      if not next_app.empty
-      else "Немає запланованих"
-  )
-  col6.metric("⏰ Найближчий запис", next_text)
+  if not next_app.empty:
+    raw_time = str(next_app.iloc[0]["time"])
+    short_time = raw_time[:5] if len(raw_time) >= 5 else raw_time
+    next_text = f"{short_time} — {next_app.iloc[0]['car']}"
+  else:
+    next_text = "Немає"
+
+  col6.metric("⏰ Найближчий", next_text)
 
   stock_status_text = (
       f"⚠️ {len(df_critical_stock)} поз. < 3м!"
       if not df_critical_stock.empty
       else "Все ОК"
   )
-  col7.metric("📦 Склад (< 3м)", stock_status_text)
+  col7.metric("📦 Склад", stock_status_text)
 
   st.divider()
 
   if not df_critical_stock.empty:
     st.error(
-        "🚨 **УВАГА! Наступні позиції плівок закінчуються (залишилось менше 3"
-        " метрів):**"
+        "🚨 **УВАГА! Наступні позиції плівок закінчуються (менше 3 метрів):**"
     )
     for _, row in df_critical_stock.iterrows():
       st.warning(
           f"🔹 **{row['film_name']}** — залишилося всього **{row['meters_left']}"
           " м**!"
       )
-
-  st.subheader("🔍 Швидкий пошук авто за держномером")
-  search_query = st.text_input(
-      "Введіть держномер або частину номера (наприклад, 7777):"
-  )
-  if search_query:
-    found_cars = run_query(
-        """SELECT cl.name, cl.phone, c.car_brand || ' ' || c.car_model as car, c.car_number,
-                  a.date, a.status, a.total_price 
-           FROM appointments a
-           JOIN clients cl ON a.client_id = cl.id
-           JOIN cars c ON a.car_id = c.id
-           WHERE c.car_number LIKE ?""",
-        (f"%{search_query}%",),
-    )
-    if not found_cars.empty:
-      st.dataframe(found_cars, use_container_width=True)
-    else:
-      st.info("Автомобілів за таким номером не знайдено.")
 
 
 # ==========================================
@@ -296,7 +312,7 @@ elif menu == "📅 Записи та Календар":
           "Рік випуску", min_value=1990, max_value=2026, value=2022
       )
 
-      st.subheader("3. Вибір послуг (можна вибрати кілька)")
+      st.subheader("3. Вибір послуг")
       selected_services = []
       if not services_df.empty:
         for _, s_row in services_df.iterrows():
@@ -362,7 +378,7 @@ elif menu == "📅 Записи та Календар":
       )
 
       photo_file = None
-      if enable_photos:
+      if st.session_state.enable_photos:
         photo_file = st.file_uploader(
             "📸 Фотофіксація авто (До / Після)", type=["jpg", "png", "jpeg"]
         )
@@ -410,7 +426,7 @@ elif menu == "📅 Записи та Календар":
         master_payout = total_price * (master_percent / 100.0)
 
         photo_path = ""
-        if enable_photos and photo_file is not None:
+        if st.session_state.enable_photos and photo_file is not None:
           os.makedirs("uploads", exist_ok=True)
           photo_path = f"uploads/{datetime.now().strftime('%Y%m%d%H%M%S')}_{photo_file.name}"
           with open(photo_path, "wb") as f:
@@ -470,7 +486,11 @@ elif menu == "📅 Записи та Календар":
       with st.expander(
           f"📅 {row['date']} {row['time']} | {row['client']} — {row['car']} ({row['car_number']}) | Статус: {row['status']} | Сума: {row['total_price']} грн"
       ):
-        if enable_photos and row["photo_path"] and os.path.exists(row["photo_path"]):
+        if (
+            st.session_state.enable_photos
+            and row["photo_path"]
+            and os.path.exists(row["photo_path"])
+        ):
           st.image(row["photo_path"], caption="Фото автомобіля", width=300)
 
         with st.form(f"edit_app_{row['id']}"):
@@ -503,14 +523,30 @@ elif menu == "📅 Записи та Календар":
 
 
 # ==========================================
-# 3. КЛІЄНТИ ТА АВТОМОБІЛІ
+# 3. КЛІЄНТИ ТА АВТОМОБІЛІ (з універсальним пошуком)
 # ==========================================
 elif menu == "👥 Клієнти та Авто":
-  st.title("👥 База клієнтів, їхні авто та витрати")
+  st.title("👥 База клієнтів та пошук")
 
-  clients_df = run_query("SELECT * FROM clients")
+  # Універсальний пошук за номером, ім'ям або телефоном
+  search_q = st.text_input(
+      "🔍 Пошук (введіть ім'я клієнта, частину телефону або держномер авто):"
+  ).strip()
+
+  if search_q:
+    query_str = """
+            SELECT DISTINCT cl.id, cl.name, cl.phone 
+            FROM clients cl
+            LEFT JOIN cars c ON cl.id = c.client_id
+            WHERE cl.name LIKE ? OR cl.phone LIKE ? OR c.car_number LIKE ?
+        """
+    param = f"%{search_q}%"
+    clients_df = run_query(query_str, (param, param, param))
+  else:
+    clients_df = run_query("SELECT * FROM clients")
 
   if not clients_df.empty:
+    st.write(f"Знайдено клієнтів: **{len(clients_df)}**")
     for _, client in clients_df.iterrows():
       with st.expander(f"👤 {client['name']} (Тел: {client['phone']})"):
         cars_df = run_query(
@@ -537,7 +573,7 @@ elif menu == "👥 Клієнти та Авто":
         else:
           st.info("У цього клієнта поки немає зареєстрованих авто.")
   else:
-    st.info("База клієнтів порожня.")
+    st.info("Клієнтів за таким запитом не знайдено.")
 
 
 # ==========================================
@@ -658,8 +694,8 @@ elif menu == "📦 Склад плівок":
 # ==========================================
 # 6. РОЗХІДНІ МАТЕРІАЛИ (якщо увімкнено)
 # ==========================================
-elif enable_supplies and menu == "🧴 Розхідні матеріали":
-  st.title("🧴 Облік дрібних розхідників (знежирювач, серветки, леза)")
+elif st.session_state.enable_supplies and menu == "🧴 Розхідні матеріали":
+  st.title("🧴 Облік дрібних розхідників")
 
   with st.expander("➕ Додати розхідник"):
     with st.form("add_supply_form"):
@@ -690,7 +726,7 @@ elif enable_supplies and menu == "🧴 Розхідні матеріали":
 # ==========================================
 # 7. ЗАРПЛАТА МАЙСТРІВ (якщо увімкнено)
 # ==========================================
-elif enable_salaries and menu == "💵 Зарплата майстрів":
+elif st.session_state.enable_salaries and menu == "💵 Зарплата майстрів":
   st.title("💵 Розрахунок зарплати майстрів")
 
   master_data = run_query("""
@@ -743,3 +779,39 @@ elif menu == "💰 Фінанси та Звіти":
     st.dataframe(fin_data, use_container_width=True)
   else:
     st.info("Немає даних для фінансових звітів.")
+
+
+# ==========================================
+# 9. НАЛАШТУВАННЯ СИСТЕМИ
+# ==========================================
+elif menu == "⚙️ Налаштування системи":
+  st.title("⚙️ Налаштування системи та безпеки")
+
+  st.subheader("🎛️ Керування функціями (вмикання/вимикання)")
+  st.session_state.enable_photos = st.checkbox(
+      "📸 Фотофіксація авто", value=st.session_state.enable_photos
+  )
+  st.session_state.enable_salaries = st.checkbox(
+      "💵 Зарплата майстрів", value=st.session_state.enable_salaries
+  )
+  st.session_state.enable_supplies = st.checkbox(
+      "🧴 Облік розхідників", value=st.session_state.enable_supplies
+  )
+
+  st.divider()
+  st.subheader("💾 Резервна копія бази даних")
+  st.write(
+      "Завантажте файл бази даних, щоб зберегти всі записи та клієнтів на"
+      " випадок оновлень:"
+  )
+
+  if os.path.exists(DB_NAME):
+    with open(DB_NAME, "rb") as f:
+      st.download_button(
+          label="📥 Завантажити резервну копію (.db)",
+          data=f,
+          file_name="tinting_crm_backup.db",
+          mime="application/octet-stream",
+      )
+  else:
+    st.info("Файл бази даних ще не створено.")
