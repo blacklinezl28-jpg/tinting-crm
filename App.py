@@ -8,7 +8,7 @@ st.set_page_config(
     page_title="Detailing & Tinting CRM Pro", page_icon="🚗", layout="wide"
 )
 
-SYSTEM_PASSWORD = "blzl"
+SYSTEM_PASSWORD = "123"
 
 
 def check_password():
@@ -39,46 +39,25 @@ def init_db():
   cursor.execute("PRAGMA foreign_keys = ON;")
 
   cursor.execute(
-      "CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY"
-      " AUTOINCREMENT, name TEXT, phone TEXT)"
-  )
-  cursor.execute(
-      "CREATE TABLE IF NOT EXISTS cars (id INTEGER PRIMARY KEY AUTOINCREMENT,"
-      " client_id INTEGER, car_brand TEXT, car_model TEXT, car_number TEXT,"
-      " car_year INTEGER, FOREIGN KEY(client_id) REFERENCES clients(id) ON"
-      " DELETE CASCADE)"
-  )
-  cursor.execute(
       "CREATE TABLE IF NOT EXISTS services (id INTEGER PRIMARY KEY"
       " AUTOINCREMENT, service_name TEXT, default_price REAL)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY"
-      " AUTOINCREMENT, film_name TEXT, category TEXT, width_cm REAL,"
-      " meters_left REAL, min_limit REAL, price_usd REAL, exchange_rate REAL,"
-      " cost_per_meter_uah REAL)"
-  )
-  cursor.execute(
-      "CREATE TABLE IF NOT EXISTS supplies (id INTEGER PRIMARY KEY"
-      " AUTOINCREMENT, item_name TEXT, quantity REAL, unit TEXT, cost REAL)"
+      " AUTOINCREMENT, item_name TEXT, category TEXT, unit TEXT,"
+      " quantity_left REAL, cost_per_unit REAL)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointments (id INTEGER PRIMARY KEY"
-      " AUTOINCREMENT, client_id INTEGER, car_id INTEGER, film_id INTEGER,"
-      " meters_used REAL, supply_id INTEGER, supply_qty REAL, total_price REAL,"
-      " payment_type TEXT, cost_price REAL, master_percent REAL,"
-      " master_payout REAL, status TEXT, date TEXT, time TEXT, warranty_months"
-      " INTEGER, comment TEXT, FOREIGN KEY(client_id) REFERENCES clients(id)"
-      " ON DELETE CASCADE, FOREIGN KEY(car_id) REFERENCES cars(id) ON DELETE"
-      " CASCADE, FOREIGN KEY(film_id) REFERENCES inventory(id) ON DELETE SET"
-      " NULL, FOREIGN KEY(supply_id) REFERENCES supplies(id) ON DELETE SET"
-      " NULL)"
+      " AUTOINCREMENT, client_name TEXT, client_phone TEXT, car_brand TEXT,"
+      " car_model TEXT, car_number TEXT, date TEXT, time TEXT, status TEXT,"
+      " final_price REAL, film_id INTEGER, film_meters REAL, supply_id INTEGER,"
+      " supply_qty REAL, material_cost REAL, net_profit REAL, comment TEXT,"
+      " photo_before TEXT, photo_after TEXT)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointment_services (appointment_id"
-      " INTEGER, service_id INTEGER, FOREIGN KEY(appointment_id) REFERENCES"
-      " appointments(id) ON DELETE CASCADE, FOREIGN KEY(service_id) REFERENCES"
-      " services(id) ON DELETE CASCADE)"
+      " INTEGER, service_id INTEGER)"
   )
   conn.commit()
   conn.close()
@@ -102,566 +81,385 @@ def run_query(query, params=(), fetch=True):
     conn.close()
 
 
-def get_clients():
-  return run_query("SELECT * FROM clients")
-
-
-def get_cars():
-  return run_query(
-      "SELECT cars.id, clients.name as client_name, cars.car_brand,"
-      " cars.car_model, cars.car_number, cars.car_year, cars.client_id FROM"
-      " cars JOIN clients ON cars.client_id = clients.id"
-  )
-
-
-def get_inventory():
-  return run_query("SELECT * FROM inventory")
-
-
-def get_supplies():
-  return run_query("SELECT * FROM supplies")
-
-
-def get_services():
-  return run_query("SELECT * FROM services")
-
-
 st.sidebar.title("🚗 Меню CRM")
 menu = st.sidebar.selectbox(
     "Виберіть розділ", [
-        "👥 Клієнти та Авто",
-        "🎞️ Склад плівок",
-        "📦 Розхідники",
         "🛠️ Послуги",
+        "📦 Склад (Плівки та Розхідники)",
         "📅 Записи",
-        "📊 Звіти",
+        "👥 База клієнтів (Архів)",
+        "📊 Аналітика та Звіти",
     ]
 )
 
-if menu == "👥 Клієнти та Авто":
-  st.header("👥 Клієнти та автомобілі")
-  tab1, tab2 = st.tabs(["Список та Редагування", "➕ Додати клієнта та авто"])
+# 1. ПОСЛУГИ
+if menu == "🛠️ Послуги":
+  st.header("🛠️ Каталог послуг")
+  tab1, tab2 = st.tabs(["Список послуг", "Додати послугу"])
 
   with tab1:
-    st.subheader("Керування клієнтами та авто")
-    clients_df = get_clients()
-    if not clients_df.empty:
-      selected_client_name = st.selectbox(
-          "Виберіть клієнта для редагування/видалення", clients_df["name"]
-      )
-      client_row = clients_df[
-          clients_df["name"] == selected_client_name
-      ].iloc[0]
-      c_id = client_row["id"]
-
-      new_c_name = st.text_input(
-          "Ім'я клієнта", value=client_row["name"], key="edit_c_name"
-      )
-      new_c_phone = st.text_input(
-          "Телефон", value=str(client_row["phone"]), key="edit_c_phone"
-      )
-
-      col1, col2 = st.columns(2)
-      with col1:
-        if st.button("Зберегти зміни клієнта"):
-          run_query(
-              "UPDATE clients SET name = ?, phone = ? WHERE id = ?",
-              (new_c_name, new_c_phone, c_id),
-              fetch=False,
-          )
-          st.success("Дані клієнта оновлено!")
-          st.rerun()
-      with col2:
-        if st.button(
-            "Видалити клієнта (та всі його авто)", type="primary"
-        ):
-          run_query(
-              "DELETE FROM clients WHERE id = ?", (c_id,), fetch=False
-          )
-          st.warning("Клієнта та його автомобілі видалено!")
-          st.rerun()
-
-      st.markdown("---")
-      st.subheader("Автомобілі цього клієнта")
-      cars_df = run_query(
-          "SELECT * FROM cars WHERE client_id = ?", (c_id,)
-      )
-      if not cars_df.empty:
-        for index, car in cars_df.iterrows():
-          with st.expander(
-              f"{car['car_brand']} {car['car_model']} ({car['car_number']})"
-          ):
-            e_brand = st.text_input(
-                "Марка", value=car["car_brand"], key=f"car_b_{car['id']}"
-            )
-            e_model = st.text_input(
-                "Модель", value=car["car_model"], key=f"car_m_{car['id']}"
-            )
-            e_num = st.text_input(
-                "Номер", value=car["car_number"], key=f"car_n_{car['id']}"
-            )
-            e_year = st.number_input(
-                "Рік",
-                value=int(car["car_year"]) if car["car_year"] else 2020,
-                key=f"car_y_{car['id']}",
-            )
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-              if st.button("Оновити авто", key=f"upd_car_{car['id']}"):
-                run_query(
-                    "UPDATE cars SET car_brand = ?, car_model = ?, car_number ="
-                    " ?, car_year = ? WHERE id = ?",
-                    (e_brand, e_model, e_num, e_year, car["id"]),
-                    fetch=False,
-                )
-                st.success("Авто оновлено!")
-                st.rerun()
-            with col_b:
-              if st.button(
-                  "Видалити авто",
-                  key=f"del_car_{car['id']}",
-                  type="secondary",
-              ):
-                run_query(
-                    "DELETE FROM cars WHERE id = ?", (car["id"],), fetch=False
-                )
-                st.warning("Авто видалено!")
-                st.rerun()
-      else:
-        st.info("У цього клієнта поки немає доданих автомобілів.")
-    else:
-      st.info("Список клієнтів порожній.")
-
-  with tab2:
-    st.subheader("Додати нового клієнта разом з автомобілем")
-    with st.form("client_car_combined_form"):
-      st.markdown("### 👤 Дані клієнта")
-      name = st.text_input("Ім'я та Прізвище клієнта")
-      phone = st.text_input("Номер телефону")
-
-      st.markdown("### 🚗 Дані автомобіля")
-      brand = st.text_input("Марка авто (наприклад, Toyota)")
-      model = st.text_input("Модель (наприклад, Camry)")
-      number = st.text_input("Держ. номер (наприклад, AA1234BB)")
-      year = st.number_input(
-          "Рік випуску", min_value=1990, max_value=2030, value=2021
-      )
-
-      submitted = st.form_submit_button("Зберегти клієнта та авто")
-      if submitted:
-        if name and brand:
-          conn = sqlite3.connect(DB_NAME)
-          cursor = conn.cursor()
-          cursor.execute("PRAGMA foreign_keys = ON;")
-
-          # Додаємо клієнта
-          cursor.execute(
-              "INSERT INTO clients (name, phone) VALUES (?, ?)", (name, phone)
-          )
-          client_id = cursor.lastrowid
-
-          # Додаємо авто для цього клієнта
-          cursor.execute(
-              """INSERT INTO cars (client_id, car_brand, car_model, car_number, car_year) 
-                             VALUES (?, ?, ?, ?, ?)""",
-              (client_id, brand, model, number, year),
-          )
-
-          conn.commit()
-          conn.close()
-          st.success(
-              f"Клієнта {name} та його автомобіль {brand} {model} успішно"
-              " додано!"
-          )
-          st.rerun()
-        else:
-          st.error("Будь ласка, заповніть хоча б ім'я клієнта та марку авто.")
-
-elif menu == "🎞️ Склад плівок":
-  st.header("🎞️ Облік плівок на складі")
-  tab1, tab2 = st.tabs(["Список плівок та Редагування", "Додати плівку"])
-
-  with tab1:
-    inv_df = get_inventory()
-    if not inv_df.empty:
-      selected_film = st.selectbox(
-          "Виберіть плівку для редагування/видалення", inv_df["film_name"]
-      )
-      film_row = inv_df[inv_df["film_name"] == selected_film].iloc[0]
-      f_id = film_row["id"]
-
-      f_name = st.text_input(
-          "Назва плівки", value=film_row["film_name"], key="edit_f_name"
-      )
-      f_cat = st.text_input(
-          "Категорія", value=film_row["category"], key="edit_f_cat"
-      )
-      f_width = st.number_input(
-          "Ширина (см)",
-          value=float(film_row["width_cm"]),
-          key="edit_f_width",
-      )
-      f_meters = st.number_input(
-          "Залишок метрів",
-          value=float(film_row["meters_left"]),
-          key="edit_f_meters",
-      )
-      f_min = st.number_input(
-          "Мінімальний ліміт",
-          value=float(film_row["min_limit"]),
-          key="edit_f_min",
-      )
-      f_price = st.number_input(
-          "Ціна ($)", value=float(film_row["price_usd"]), key="edit_f_price"
-      )
-      f_rate = st.number_input(
-          "Курс валюти",
-          value=float(film_row["exchange_rate"]),
-          key="edit_f_rate",
-      )
-
-      col1, col2 = st.columns(2)
-      with col1:
-        if st.button("Зберегти плівку"):
-          cost_uah = f_price * f_rate
-          run_query(
-              "UPDATE inventory SET film_name = ?, category = ?, width_cm = ?,"
-              " meters_left = ?, min_limit = ?, price_usd = ?, exchange_rate ="
-              " ?, cost_per_meter_uah = ? WHERE id = ?",
-              (
-                  f_name,
-                  f_cat,
-                  f_width,
-                  f_meters,
-                  f_min,
-                  f_price,
-                  f_rate,
-                  cost_uah,
-                  f_id,
-              ),
-              fetch=False,
-          )
-          st.success("Плівку оновлено!")
-          st.rerun()
-      with col2:
-        if st.button("Видалити плівку", type="primary"):
-          run_query("DELETE FROM inventory WHERE id = ?", (f_id,), fetch=False)
-          st.warning("Плівку видалено!")
-          st.rerun()
-
-      st.markdown("---")
-      st.dataframe(inv_df, use_container_width=True)
-    else:
-      st.info("Склад плівок порожній.")
-
-  with tab2:
-    with st.form("film_form"):
-      film_name = st.text_input("Назва плівки (наприклад, LLumar ATR 15)")
-      category = st.selectbox(
-          "Категорія", ["Тонувальна", "Атермальна", "Бронеплівка", "Вініл"]
-      )
-      width_cm = st.number_input("Ширина рулону (см)", value=152.0)
-      meters_left = st.number_input("Кількість метрів", value=30.0)
-      min_limit = st.number_input("Мін. ліміт для попередження", value=5.0)
-      price_usd = st.number_input("Ціна за метр ($)", value=15.0)
-      exchange_rate = st.number_input("Курс валюти (грн)", value=41.0)
-      submitted = st.form_submit_button("Додати плівку")
-      if submitted and film_name:
-        cost_uah = price_usd * exchange_rate
-        run_query(
-            "INSERT INTO inventory (film_name, category, width_cm, meters_left,"
-            " min_limit, price_usd, exchange_rate, cost_per_meter_uah) VALUES"
-            " (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                film_name,
-                category,
-                width_cm,
-                meters_left,
-                min_limit,
-                price_usd,
-                exchange_rate,
-                cost_uah,
-            ),
-            fetch=False,
-        )
-        st.success("Плівку успішно додано!")
-        st.rerun()
-
-elif menu == "📦 Розхідники":
-  st.header("📦 Облік розхідників та хімії")
-  tab1, tab2 = st.tabs(["Список та Редагування", "Додати розхідник"])
-
-  with tab1:
-    supp_df = get_supplies()
-    if not supp_df.empty:
-      selected_supp = st.selectbox(
-          "Виберіть розхідник для редагування/видалення", supp_df["item_name"]
-      )
-      supp_row = supp_df[supp_df["item_name"] == selected_supp].iloc[0]
-      s_id = supp_row["id"]
-
-      s_name = st.text_input(
-          "Назва", value=supp_row["item_name"], key="edit_s_name"
-      )
-      s_qty = st.number_input(
-          "Кількість",
-          value=float(supp_row["quantity"]),
-          key="edit_s_qty",
-      )
-      s_unit = st.text_input(
-          "Одиниця виміру", value=supp_row["unit"], key="edit_s_unit"
-      )
-      s_cost = st.number_input(
-          "Вартість (грн)",
-          value=float(supp_row["cost"]),
-          key="edit_s_cost",
-      )
-
-      col1, col2 = st.columns(2)
-      with col1:
-        if st.button("Зберегти розхідник"):
-          run_query(
-              "UPDATE supplies SET item_name = ?, quantity = ?, unit = ?, cost"
-              " = ? WHERE id = ?",
-              (s_name, s_qty, s_unit, s_cost, s_id),
-              fetch=False,
-          )
-          st.success("Розхідник оновлено!")
-          st.rerun()
-      with col2:
-        if st.button("Видалити розхідник", type="primary"):
-          run_query("DELETE FROM supplies WHERE id = ?", (s_id,), fetch=False)
-          st.warning("Розхідник видалено!")
-          st.rerun()
-
-      st.markdown("---")
-      st.dataframe(supp_df, use_container_width=True)
-    else:
-      st.info("Список розхідників порожній.")
-
-  with tab2:
-    with st.form("supp_form"):
-      item_name = st.text_input("Назва (наприклад, Лезвія Olfa, Шампунь)")
-      quantity = st.number_input("Кількість", value=10.0)
-      unit = st.text_input("Одиниця виміру (шт, л, рулон)", value="шт")
-      cost = st.number_input("Загальна вартість (грн)", value=200.0)
-      submitted = st.form_submit_button("Додати розхідник")
-      if submitted and item_name:
-        run_query(
-            "INSERT INTO supplies (item_name, quantity, unit, cost) VALUES"
-            " (?, ?, ?, ?)",
-            (item_name, quantity, unit, cost),
-            fetch=False,
-        )
-        st.success("Розхідник додано!")
-        st.rerun()
-
-elif menu == "🛠️ Послуги":
-  st.header("🛠️ Додаткові послуги")
-  tab1, tab2 = st.tabs(["Список послуг та Редагування", "Додати послугу"])
-
-  with tab1:
-    serv_df = get_services()
+    serv_df = run_query("SELECT * FROM services")
     if not serv_df.empty:
-      selected_serv = st.selectbox(
-          "Виберіть послугу для редагування/видалення", serv_df["service_name"]
-      )
-      serv_row = serv_df[serv_df["service_name"] == selected_serv].iloc[0]
-      srv_id = serv_row["id"]
-
-      srv_name = st.text_input(
-          "Назва послуги",
-          value=serv_row["service_name"],
-          key="edit_srv_name",
-      )
-      srv_price = st.number_input(
-          "Ціна за замовчуванням (грн)",
-          value=float(serv_row["default_price"]),
-          key="edit_srv_price",
-      )
-
-      col1, col2 = st.columns(2)
-      with col1:
-        if st.button("Зберегти послугу"):
-          run_query(
-              "UPDATE services SET service_name = ?, default_price = ? WHERE"
-              " id = ?",
-              (srv_name, srv_price, srv_id),
-              fetch=False,
+      for idx, row in serv_df.iterrows():
+        with st.expander(f"{row['service_name']} — {row['default_price']} грн"):
+          new_name = st.text_input(
+              "Назва послуги", value=row["service_name"], key=f"s_name_{row['id']}"
           )
-          st.success("Послугу оновлено!")
-          st.rerun()
-      with col2:
-        if st.button("Видалити послугу", type="primary"):
-          run_query("DELETE FROM services WHERE id = ?", (srv_id,), fetch=False)
-          st.warning("Послугу видалено!")
-          st.rerun()
-
-      st.markdown("---")
-      st.dataframe(serv_df, use_container_width=True)
+          new_price = st.number_input(
+              "Ціна (грн)",
+              value=float(row["default_price"]),
+              key=f"s_price_{row['id']}",
+          )
+          col1, col2 = st.columns(2)
+          with col1:
+            if st.button("Зберегти", key=f"save_s_{row['id']}"):
+              run_query(
+                  "UPDATE services SET service_name = ?, default_price = ? WHERE"
+                  " id = ?",
+                  (new_name, new_price, row["id"]),
+                  fetch=False,
+              )
+              st.success("Оновлено!")
+              st.rerun()
+          with col2:
+            if st.button("Видалити", key=f"del_s_{row['id']}", type="primary"):
+              run_query(
+                  "DELETE FROM services WHERE id = ?",
+                  (row["id"],),
+                  fetch=False,
+              )
+              st.warning("Видалено!")
+              st.rerun()
     else:
       st.info("Список послуг порожній.")
 
   with tab2:
-    with st.form("service_form"):
-      service_name = st.text_input(
-          "Назва послуги (наприклад, Демонтаж старого тонування)"
-      )
-      default_price = st.number_input("Ціна (грн)", value=500.0)
-      submitted = st.form_submit_button("Додати послугу")
-      if submitted and service_name:
-        run_query(
-            "INSERT INTO services (service_name, default_price) VALUES (?, ?)",
-            (service_name, default_price),
-            fetch=False,
-        )
-        st.success("Послугу додано!")
-        st.rerun()
+    with st.form("add_service_form"):
+      s_name = st.text_input("Назва послуги (наприклад, Тонування задньої півсфери)")
+      s_price = st.number_input("Ціна за замовчуванням (грн)", value=2500.0)
+      if st.form_submit_button("Додати послугу"):
+        if s_name:
+          run_query(
+              "INSERT INTO services (service_name, default_price) VALUES (?, ?)",
+              (s_name, s_price),
+              fetch=False,
+          )
+          st.success("Послугу додано!")
+          st.rerun()
 
-elif menu == "📅 Записи":
-  st.header("📅 Журнал записів")
-  tab1, tab2, tab3 = st.tabs(["Всі записи", "Новий запис", "Керування записом"])
+# 2. СКЛАД
+elif menu == "📦 Склад (Плівки та Розхідники)":
+  st.header("📦 Склад матеріалів та розхідників")
+  tab1, tab2 = st.tabs(["Залишки на складі", "Додати на склад"])
 
   with tab1:
-    st.subheader("Список усіх записів")
-    appointments_df = run_query("""
-            SELECT appointments.id, clients.name as client, cars.car_brand || ' ' || cars.car_model as car, 
-                   appointments.total_price, appointments.status, appointments.date, appointments.time 
-            FROM appointments 
-            JOIN clients ON appointments.client_id = clients.id 
-            JOIN cars ON appointments.car_id = cars.id
-        """)
-    if not appointments_df.empty:
-      st.dataframe(appointments_df, use_container_width=True)
+    inv_df = run_query("SELECT * FROM inventory")
+    if not inv_df.empty:
+      for idx, row in inv_df.iterrows():
+        with st.expander(
+            f"{row['item_name']} ({row['category']}) — Залишок:"
+            f" {row['quantity_left']} {row['unit']}"
+        ):
+          i_name = st.text_input(
+              "Назва", value=row["item_name"], key=f"inv_n_{row['id']}"
+          )
+          i_cat = st.selectbox(
+              "Категорія",
+              ["Плівка", "Розхідник/Хімія"],
+              index=0 if row["category"] == "Плівка" else 1,
+              key=f"inv_c_{row['id']}",
+          )
+          i_qty = st.number_input(
+              "Залишок",
+              value=float(row["quantity_left"]),
+              key=f"inv_q_{row['id']}",
+          )
+          i_unit = st.text_input(
+              "Од. виміру (м, шт, л)",
+              value=row["unit"],
+              key=f"inv_u_{row['id']}",
+          )
+          i_cost = st.number_input(
+              "Ціна за одиницю (грн)",
+              value=float(row["cost_per_unit"]),
+              key=f"inv_co_{row['id']}",
+          )
+          col1, col2 = st.columns(2)
+          with col1:
+            if st.button("Оновити позицію", key=f"upd_inv_{row['id']}"):
+              run_query(
+                  "UPDATE inventory SET item_name = ?, category = ?, unit = ?,"
+                  " quantity_left = ?, cost_per_unit = ? WHERE id = ?",
+                  (i_name, i_cat, i_unit, i_qty, i_cost, row["id"]),
+                  fetch=False,
+              )
+              st.success("Оновлено!")
+              st.rerun()
+          with col2:
+            if st.button(
+                "Видалити позицію", key=f"del_inv_{row['id']}", type="primary"
+            ):
+              run_query(
+                  "DELETE FROM inventory WHERE id = ?",
+                  (row["id"],),
+                  fetch=False,
+              )
+              st.warning("Видалено!")
+              st.rerun()
+    else:
+      st.info("Склад порожній.")
+
+  with tab2:
+    with st.form("add_inventory_form"):
+      item_name = st.text_input("Назва (наприклад, LLumar ATR 15 або Лезвія)")
+      category = st.selectbox("Категорія", ["Плівка", "Розхідник/Хімія"])
+      quantity_left = st.number_input("Кількість (метрів або штук)", value=30.0)
+      unit = st.text_input("Одиниця виміру", value="м")
+      cost_per_unit = st.number_input(
+          "Вартість за одиницю (собівартість у грн)", value=350.0
+      )
+      if st.form_submit_button("Додати на склад"):
+        if item_name:
+          run_query(
+              "INSERT INTO inventory (item_name, category, unit,"
+              " quantity_left, cost_per_unit) VALUES (?, ?, ?, ?, ?)",
+              (item_name, category, unit, quantity_left, cost_per_unit),
+              fetch=False,
+          )
+          st.success("Успішно додано на склад!")
+          st.rerun()
+
+# 3. ЗАПИСИ
+elif menu == "📅 Записи":
+  st.header("📅 Журнал записів")
+  tab1, tab2 = st.tabs(["Список записів", "➕ Створити новий запис"])
+
+  with tab1:
+    apps = run_query("SELECT * FROM appointments ORDER BY date DESC")
+    if not apps.empty:
+      for idx, row in apps.iterrows():
+        status_color = (
+            "🟢"
+            if row["status"] == "Виконано"
+            else "🟡" if row["status"] == "В роботі" else "🔵"
+        )
+        with st.expander(
+            f"{status_color} {row['date']} {row['time']} | {row['client_name']}"
+            f" ({row['car_brand']} {row['car_model']} - {row['car_number']}) |"
+            f" Статус: {row['status']}"
+        ):
+          st.write(f"**Телефон:** {row['client_phone']}")
+          st.write(f"**Статус:** {row['status']}")
+
+          # Отримуємо послуги для цього запису
+          srv_ids = run_query(
+              "SELECT service_id FROM appointment_services WHERE appointment_id"
+              " = ?",
+              (row["id"],),
+          )
+          if not srv_ids.empty:
+            all_s = run_query("SELECT * FROM services")
+            matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
+            st.write(
+                "**Заплановані послуги:**"
+                f" {', '.join(matched_services['service_name'].tolist())}"
+            )
+
+          st.markdown("---")
+          # Форма оновлення статусу та фінішної обробки
+          with st.form(f"update_app_form_{row['id']}"):
+            new_status = st.selectbox(
+                "Змінити статус",
+                ["Заплановано", "В роботі", "Виконано", "Скасовано"],
+                index=[
+                    "Заплановано",
+                    "В роботі",
+                    "Виконано",
+                    "Скасовано",
+                ].index(row["status"]),
+            )
+
+            final_price = st.number_input(
+                "Фінальна ціна за послуги (грн)",
+                value=(
+                    float(row["final_price"])
+                    if pd.notna(row["final_price"])
+                    else 3000.0
+                ),
+            )
+
+            inv_data = run_query("SELECT * FROM inventory")
+            films = inv_data[inv_data["category"] == "Плівка"]
+            supplies = inv_data[inv_data["category"] != "Плівка"]
+
+            film_options = {"Не вибрано": None}
+            for _, f_row in films.iterrows():
+              film_options[
+                  f"{f_row['item_name']} (залишок: {f_row['quantity_left']}"
+                  f" {f_row['unit']})"
+              ] = f_row["id"]
+
+            sel_film_label = st.selectbox(
+                "Використана плівка", list(film_options.keys())
+            )
+            film_meters = st.number_input(
+                "Використано метрів плівки",
+                value=(
+                    float(row["film_meters"])
+                    if pd.notna(row["film_meters"])
+                    else 0.0
+                ),
+            )
+
+            supp_options = {"Не вибрано": None}
+            for _, s_row in supplies.iterrows():
+              supp_options[
+                  f"{s_row['item_name']} (залишок: {s_row['quantity_left']}"
+                  f" {s_row['unit']})"
+              ] = s_row["id"]
+
+            sel_supp_label = st.selectbox(
+                "Використаний розхідник", list(supp_options.keys())
+            )
+            supp_qty = st.number_input(
+                "Кількість розхідника",
+                value=(
+                    float(row["supply_qty"])
+                    if pd.notna(row["supply_qty"])
+                    else 0.0
+                ),
+            )
+
+            comment = st.text_area(
+                "Коментар / Нотатки",
+                value=str(row["comment"]) if pd.notna(row["comment"]) else "",
+            )
+
+            submitted = st.form_submit_button("Зберегти / Оновити запис")
+            if submitted:
+              f_id = film_options[sel_film_label]
+              s_id = supp_options[sel_supp_label]
+
+              # Розрахунок собівабітості матеріалів
+              mat_cost = 0.0
+              conn = sqlite3.connect(DB_NAME)
+              cursor = conn.cursor()
+
+              if f_id and film_meters > 0:
+                cursor.execute(
+                    "SELECT cost_per_unit, quantity_left FROM inventory WHERE"
+                    " id = ?",
+                    (f_id,),
+                )
+                f_res = cursor.fetchone()
+                if f_res:
+                  mat_cost += f_res[0] * film_meters
+                  # Якщо статус змінюється на Виконано і раніше не списувалося (тут робимо спрощене списання)
+                  if new_status == "Виконано" and row["status"] != "Виконано":
+                    cursor.execute(
+                        "UPDATE inventory SET quantity_left = quantity_left - ?"
+                        " WHERE id = ?",
+                        (film_meters, f_id),
+                    )
+
+              if s_id and supp_qty > 0:
+                cursor.execute(
+                    "SELECT cost_per_unit, quantity_left FROM inventory WHERE"
+                    " id = ?",
+                    (s_id,),
+                )
+                s_res = cursor.fetchone()
+                if s_res:
+                  mat_cost += s_res[0] * supp_qty
+                  if new_status == "Виконано" and row["status"] != "Виконано":
+                    cursor.execute(
+                        "UPDATE inventory SET quantity_left = quantity_left - ?"
+                        " WHERE id = ?",
+                        (supp_qty, s_id),
+                    )
+
+              net_prof = final_price - mat_cost
+
+              cursor.execute(
+                  """UPDATE appointments SET status = ?, final_price = ?, film_id = ?, film_meters = ?, 
+                                         supply_id = ?, supply_qty = ?, material_cost = ?, net_profit = ?, comment = ? 
+                             WHERE id = ?""",
+                  (
+                      new_status,
+                      final_price,
+                      f_id,
+                      film_meters,
+                      s_id,
+                      supp_qty,
+                      mat_cost,
+                      net_prof,
+                      comment,
+                      row["id"],
+                  ),
+              )
+              conn.commit()
+              conn.close()
+              st.success("Запис успішно оновлено та склад скориговано!")
+              st.rerun()
     else:
       st.info("Поки немає жодного запису.")
 
   with tab2:
     st.subheader("Створити новий запис")
-    clients_df = get_clients()
-    cars_df = get_cars()
-    inv_df = get_inventory()
-    supp_df = get_supplies()
-    serv_df = get_services()
+    services_df = run_query("SELECT * FROM services")
 
-    if clients_df.empty or cars_df.empty:
-      st.warning(
-          "Спочатку додайте хоча б одного клієнта та автомобіль у розділі"
-          " 'Клієнти та Авто'."
+    with st.form("new_appointment_form"):
+      st.markdown("### 👤 Дані клієнта та авто")
+      c_name = st.text_input("Ім'я та Прізвище клієнта")
+      c_phone = st.text_input("Номер телефону")
+      car_brand = st.text_input("Марка авто (наприклад, BMW)")
+      car_model = st.text_input("Модель (наприклад, X5)")
+      car_number = st.text_input("Держ. номер")
+
+      st.markdown("### 🛠️ Плановані послуги")
+      selected_services = []
+      if not services_df.empty:
+        selected_services = st.multiselect(
+            "Оберіть послуги, які будуть надаватись",
+            services_df["service_name"],
+        )
+
+      st.markdown("### 📅 Дата та статус")
+      date = st.date_input("Дата запису")
+      time = st.time_input("Час запису")
+      status = st.selectbox(
+          "Статус", ["Заплановано", "В роботі", "Виконано", "Скасовано"]
       )
-    else:
-      with st.form("appointment_form"):
-        client_dict = dict(zip(clients_df["name"], clients_df["id"]))
-        sel_client_name = st.selectbox("Клієнт", list(client_dict.keys()))
-        client_id = client_dict[sel_client_name]
+      comment = st.text_area("Початковий коментар")
 
-        client_cars = cars_df[cars_df["client_id"] == client_id]
-        if not client_cars.empty:
-          car_dict = dict(
-              zip(
-                  client_cars["car_brand"]
-                  + " "
-                  + client_cars["car_model"]
-                  + " ("
-                  + client_cars["car_number"]
-                  + ")",
-                  client_cars["id"],
-              )
-          )
-          sel_car_name = st.selectbox(
-              "Автомобіль клієнта", list(car_dict.keys())
-          )
-          car_id = car_dict[sel_car_name]
-        else:
-          st.error("У цього клієнта немає автомобілів!")
-          car_id = None
-
-        film_id, meters_used = None, 0.0
-        if not inv_df.empty:
-          film_dict = dict(zip(inv_df["film_name"], inv_df["id"]))
-          sel_film = st.selectbox(
-              "Плівка (якщо використовується)",
-              ["Не вибрано"] + list(film_dict.keys()),
-          )
-          if sel_film != "Не вибрано":
-            film_id = film_dict[sel_film]
-            meters_used = st.number_input("Використано метрів", value=2.0)
-
-        selected_services = []
-        if not serv_df.empty:
-          selected_services = st.multiselect(
-              "Додаткові послуги", serv_df["service_name"]
-          )
-
-        supply_id, supply_qty = None, 0.0
-        if not supp_df.empty:
-          supp_dict = dict(zip(supp_df["item_name"], supp_df["id"]))
-          sel_supp = st.selectbox(
-              "Витратний матеріал", ["Не вибрано"] + list(supp_dict.keys())
-          )
-          if sel_supp != "Не вибрано":
-            supply_id = supp_dict[sel_supp]
-            supply_qty = st.number_input("Кількість витратника", value=1.0)
-
-        total_price = st.number_input(
-            "Загальна сума до сплати (грн)", value=3000.0
-        )
-        payment_type = st.selectbox(
-            "Тип оплати", ["Готівка", "Картка", "Безготівковий"]
-        )
-        master_percent = st.slider("Відсоток майстра (%)", 0, 100, 40)
-        master_payout = total_price * (master_percent / 100.0)
-
-        status = st.selectbox(
-            "Статус", ["Заплановано", "В роботі", "Виконано", "Скасовано"]
-        )
-        date = st.date_input("Дата")
-        time = st.time_input("Час")
-        warranty_months = st.number_input("Гарантія (місяців)", value=12)
-        comment = st.text_area("Коментар / Нотатки")
-
-        app_submitted = st.form_submit_button("Зберегти запис")
-        if app_submitted and car_id:
+      submit_app = st.form_submit_button("Створити запис")
+      if submit_app:
+        if c_name and car_brand:
           conn = sqlite3.connect(DB_NAME)
           cursor = conn.cursor()
           cursor.execute("PRAGMA foreign_keys = ON;")
+
           cursor.execute(
-              """INSERT INTO appointments (client_id, car_id, film_id, meters_used, supply_id, 
-                                           supply_qty, total_price, payment_type, cost_price, 
-                                           master_percent, master_payout, status, date, time, 
-                                           warranty_months, comment) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              """INSERT INTO appointments (client_name, client_phone, car_brand, car_model, car_number, 
+                                           date, time, status, final_price, material_cost, net_profit, comment) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)""",
               (
-                  client_id,
-                  car_id,
-                  film_id,
-                  meters_used,
-                  supply_id,
-                  supply_qty,
-                  total_price,
-                  payment_type,
-                  0,
-                  master_percent,
-                  master_payout,
-                  status,
+                  c_name,
+                  c_phone,
+                  car_brand,
+                  car_model,
+                  car_number,
                   str(date),
                   str(time),
-                  warranty_months,
+                  status,
                   comment,
               ),
           )
           app_id = cursor.lastrowid
 
-          if film_id and meters_used > 0:
-            cursor.execute(
-                "UPDATE inventory SET meters_left = meters_left - ? WHERE id = ?",
-                (meters_used, film_id),
-            )
-
           if selected_services:
             for s_name_item in selected_services:
-              s_row = serv_df[serv_df["service_name"] == s_name_item]
+              s_row = services_df[services_df["service_name"] == s_name_item]
               if not s_row.empty:
                 s_id_val = s_row.iloc[0]["id"]
                 cursor.execute(
@@ -672,82 +470,60 @@ elif menu == "📅 Записи":
 
           conn.commit()
           conn.close()
-          st.success("Запис успішно створено, а склад оновлено!")
+          st.success("Запис успішно створено!")
           st.rerun()
+        else:
+          st.error("Введіть ім'я клієнта та марку автомобіля.")
 
-  with tab3:
-    st.subheader("Редагування або видалення запису")
-    app_list_df = run_query("""
-            SELECT appointments.id, clients.name || ' - ' || cars.car_brand || ' (' || appointments.date || ')' as info 
-            FROM appointments 
-            JOIN clients ON appointments.client_id = clients.id 
-            JOIN cars ON appointments.car_id = cars.id
-        """)
-    if not app_list_df.empty:
-      selected_app_info = st.selectbox("Виберіть запис", app_list_df["info"])
-      app_id_to_edit = app_list_df[
-          app_list_df["info"] == selected_app_info
-      ].iloc[0]["id"]
-
-      cur_app_df = run_query(
-          "SELECT * FROM appointments WHERE id = ?", (app_id_to_edit,)
-      )
-      if not cur_app_df.empty:
-        curr_row = cur_app_df.iloc[0]
-        statuses = ["Заплановано", "В роботі", "Виконано", "Скасовано"]
-        curr_status = (
-            curr_row["status"] if curr_row["status"] in statuses else "Заплановано"
-        )
-        new_status = st.selectbox(
-            "Змінити статус", statuses, index=statuses.index(curr_status)
-        )
-        new_price = st.number_input(
-            "Сума (грн)", value=float(curr_row["total_price"])
-        )
-
-        col1, col2 = st.columns(2)
-        with col1:
-          if st.button("Оновити статус/суму"):
-            run_query(
-                "UPDATE appointments SET status = ?, total_price = ? WHERE id"
-                " = ?",
-                (new_status, new_price, app_id_to_edit),
-                fetch=False,
-            )
-            st.success("Запис оновлено!")
-            st.rerun()
-        with col2:
-          if st.button("Видалити запис", type="primary"):
-            run_query(
-                "DELETE FROM appointments WHERE id = ?",
-                (app_id_to_edit,),
-                fetch=False,
-            )
-            st.warning("Видалено!")
-            st.rerun()
-    else:
-      st.info("Немає записів для редагування.")
-
-elif menu == "📊 Звіти":
-  st.header("📊 Аналітика та фінансові звіти")
-  app_rep = run_query(
-      "SELECT total_price, master_payout, date, status FROM appointments"
+# 4. БАЗА КЛІЄНТІВ (АРХІВ)
+elif menu == "👥 База клієнтів (Архів)":
+  st.header("👥 База клієнтів та історія авто")
+  archive_df = run_query(
+      "SELECT client_name, client_phone, car_brand, car_model, car_number,"
+      " date, status, final_price FROM appointments ORDER BY date DESC"
   )
-  if not app_rep.empty:
-    total_earned = app_rep[app_rep["status"] == "Виконано"][
-        "total_price"
-    ].sum()
-    total_master = app_rep[app_rep["status"] == "Виконано"][
-        "master_payout"
-    ].sum()
+  if not archive_df.empty:
+    st.dataframe(archive_df, use_container_width=True)
+  else:
+    st.info("Архів порожній.")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Загальний дохід (Виконано)", f"{total_earned} грн")
-    col2.metric("Виплати майстрам", f"{total_master} грн")
-    col3.metric("Чистий прибуток", f"{total_earned - total_master} грн")
+# 5. АНАЛІТИКА ТА ЗВІТИ
+elif menu == "📊 Аналітика та Звіти":
+  st.header("📊 Фінансова аналітика та звіти")
+  rep_df = run_query(
+      "SELECT * FROM appointments WHERE status = 'Виконано'"
+  )
+
+  if not rep_df.empty:
+    total_earned = rep_df["final_price"].sum()
+    total_cost = rep_df["material_cost"].sum()
+    total_net = rep_df["net_profit"].sum()
+    total_cars = len(rep_df)
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Виконано авто", f"{total_cars} шт")
+    col2.metric("Загальний дохід", f"{total_earned:,.2f} грн")
+    col3.metric("Витрати на матеріали", f"{total_cost:,.2f} грн")
+    col4.metric("Чистий прибуток", f"{total_net:,.2f} грн")
 
     st.markdown("---")
-    st.subheader("Детальна таблиця виконання")
-    st.dataframe(app_rep, use_container_width=True)
+    st.subheader("Детальний звіт по всіх виконаних роботах")
+    st.dataframe(
+        rep_df[[
+            "date",
+            "client_name",
+            "car_brand",
+            "car_model",
+            "car_number",
+            "final_price",
+            "material_cost",
+            "net_profit",
+            "comment",
+        ]],
+        use_container_width=True,
+    )
   else:
-    st.info("Недостатньо даних для звітів.")
+    st.info(
+        "Немає даних для звітів (потрібно перевести хоча б один запис у статус"
+        " 'Виконано')."
+    )
