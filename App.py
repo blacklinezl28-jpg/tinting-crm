@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import sqlite3
 import pandas as pd
@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 # --- Налаштування безпеки (Пароль) ---
-SYSTEM_PASSWORD = "blzl"  # <--- Можете змінити пароль тут за бажанням
+SYSTEM_PASSWORD = "blzl"  # <--- Змініть за потреби
 
 
 def check_password():
@@ -20,7 +20,7 @@ def check_password():
   if not st.session_state["authenticated"]:
     st.title("🔒 Авторизація в CRM-системі")
     st.write(
-        "Введіть пароль для доступу до бази даних та управлінь студією:"
+        "Введіть пароль для доступу до бази даних та управління студією:"
     )
 
     entered_password = st.text_input("Пароль", type="password")
@@ -37,8 +37,7 @@ def check_password():
 if not check_password():
   st.stop()
 
-
-# --- Ініціалізація бази даних ---
+# --- Ініціалізація та міграція бази даних ---
 DB_NAME = "tinting_crm.db"
 
 
@@ -134,6 +133,14 @@ def init_db():
         )
     """)
 
+  # Автоматична міграція нових колонок
+  cursor.execute("PRAGMA table_info(appointments)")
+  columns = [col[1] for col in cursor.fetchall()]
+  if "supply_id" not in columns:
+    cursor.execute("ALTER TABLE appointments ADD COLUMN supply_id INTEGER")
+  if "supply_qty" not in columns:
+    cursor.execute("ALTER TABLE appointments ADD COLUMN supply_qty REAL")
+
   cursor.execute("SELECT COUNT(*) FROM services")
   if cursor.fetchone()[0] == 0:
     default_services = [
@@ -168,13 +175,6 @@ def run_query(query, params=(), fetch=True):
     conn.close()
 
 
-if "enable_photos" not in st.session_state:
-  st.session_state.enable_photos = True
-if "enable_salaries" not in st.session_state:
-  st.session_state.enable_salaries = True
-if "enable_supplies" not in st.session_state:
-  st.session_state.enable_supplies = True
-
 st.sidebar.title("🚗 Меню CRM")
 st.sidebar.divider()
 
@@ -184,10 +184,10 @@ menu = st.sidebar.selectbox(
         "📊 Головний екран (Dashboard)",
         "📅 Записи та Календар",
         "👥 Клієнти та Авто",
-        "⚙️ Налаштування послуг",
         "📦 Склад (Плівки та Розхідники)",
         "💵 Зарплата майстрів",
         "💰 Фінанси та Звіти",
+        "⚙️ Налаштування послуг",
         "⚙️ Налаштування системи",
     ],
 )
@@ -222,7 +222,6 @@ if menu == "📊 Головний екран (Dashboard)":
       else 0.0
   )
 
-  # Прибуток за місяць замість сьогодні
   df_prof_month = run_query(
       """SELECT SUM(total_price - cost_price - master_payout) as profit 
          FROM appointments WHERE date LIKE ? AND status = 'Виконано'""",
@@ -378,7 +377,6 @@ elif menu == "📅 Записи та Календар":
             "Статус", ["Заплановано", "В роботі", "Виконано", "Скасовано"]
         )
 
-      # Відсоток майстра зафіксований на 15%
       master_percent = 15.0
       st.info("💡 Відсоток майстра фіксований: **15%**")
 
@@ -512,7 +510,6 @@ elif menu == "📅 Записи та Календар":
               width=300,
           )
 
-        # Форма редагування / завершення авто
         with st.form(f"edit_app_{row['id']}"):
           st.subheader("Редагування / Закінчення робіт по авто")
 
@@ -527,12 +524,11 @@ elif menu == "📅 Записи та Календар":
               ].index(row["Статус"]),
           )
           final_price = st.number_input(
-              "Фінальна ціна для клієнта (грн) [якщо була зміна складності/знижка]",
+              "Фінальна ціна для клієнта (грн)",
               value=float(row["Сума (грн)"]),
               step=50.0,
           )
 
-          # Списання розхідників по факту
           supplies_df_list = run_query(
               "SELECT id, item_name, quantity, cost FROM supplies"
           )
@@ -562,7 +558,7 @@ elif menu == "📅 Записи та Календар":
               )
 
           comment = st.text_area(
-              "Коментар / Нюанси по авто (на майбутнє)",
+              "Коментар / Нюанси по авто",
               value=str(row["comment"] if row["comment"] else ""),
           )
 
@@ -584,7 +580,6 @@ elif menu == "📅 Записи та Календар":
             conn = sqlite3.connect(DB_NAME)
             cursor = conn.cursor()
 
-            # Додатковий розрахунок собівартості розхідника якщо вибрано
             extra_cost = 0.0
             if chosen_supply_id and supply_used_qty > 0:
               cursor.execute(
@@ -604,7 +599,7 @@ elif menu == "📅 Записи та Календар":
                   )
 
             new_cost_price = row["Собівартість"] + extra_cost
-            new_master_payout = final_price * 0.15  # 15% майстру
+            new_master_payout = final_price * 0.15
 
             photo_path = row["photo_path"]
             if photo_file is not None:
@@ -651,7 +646,7 @@ elif menu == "📅 Записи та Календар":
 # 3. КЛІЄНТИ ТА АВТОМОБІЛІ
 # ==========================================
 elif menu == "👥 Клієнти та Авто":
-  st.title("👥 База клієнтів, авто та видалення")
+  st.title("👥 База клієнтів, авто та збереження історії")
 
   search_q = st.text_input(
       "🔍 Шукати за іменем клієнта, номером телефону або держномером авто:"
@@ -729,80 +724,9 @@ elif menu == "👥 Клієнти та Авто":
 
 
 # ==========================================
-# 4. НАЛАШТУВАННЯ ПОСЛУГ (У ВИСУВНОМУ МЕНЮ)
+# 4. СКЛАД (ПЛІВКИ ТА РОЗХІДНИКИ)
 # ==========================================
-elif menu == "⚙️ Налаштування послуг":
-  st.title("⚙️ Керування послугами та цінами")
-
-  with st.expander("➕ Додати нову послугу"):
-    with st.form("add_service_form"):
-      service_name = st.text_input("Назва послуги")
-      default_price = st.number_input(
-          "Базова вартість (грн)", min_value=0.0, value=1000.0, step=100.0
-      )
-
-      submitted_service = st.form_submit_button("Додати послугу")
-      if submitted_service and service_name:
-        run_query(
-            "INSERT INTO services (service_name, default_price) VALUES (?, ?)",
-            (service_name, default_price),
-            fetch=False,
-        )
-        st.success("Нову послугу успішно додано!")
-        st.rerun()
-
-  st.subheader("Редагування існуючих послуг")
-  services_df = run_query("SELECT * FROM services")
-
-  if not services_df.empty:
-    for _, s_row in services_df.iterrows():
-      # Зроблено у висувному меню (експандері)
-      with st.expander(
-          f"✏️ {s_row['service_name']} — {s_row['default_price']} грн"
-      ):
-        with st.form(f"edit_srv_{s_row['id']}"):
-          upd_name = st.text_input(
-              "Назва послуги",
-              value=s_row["service_name"],
-              key=f"name_{s_row['id']}",
-          )
-          upd_price = st.number_input(
-              "Ціна (грн)",
-              value=float(s_row["default_price"]),
-              step=50.0,
-              key=f"prc_{s_row['id']}",
-          )
-
-          col_b1, col_b2 = st.columns(2)
-          with col_b1:
-            save_s = st.form_submit_button("💾 Зберегти зміни")
-          with col_b2:
-            del_s = st.form_submit_button("🗑️ Видалити послугу")
-
-          if save_s:
-            run_query(
-                "UPDATE services SET service_name = ?, default_price = ? WHERE"
-                " id = ?",
-                (upd_name, upd_price, s_row["id"]),
-                fetch=False,
-            )
-            st.success("Послугу оновлено!")
-            st.rerun()
-
-          if del_s:
-            run_query(
-                "DELETE FROM services WHERE id = ?", (s_row["id"],), fetch=False
-            )
-            st.warning("Послугу видалено!")
-            st.rerun()
-  else:
-    st.info("Немає доданих послуг.")
-
-
-# ==========================================
-# 5. СКЛАД (ПЛІВКИ ТА РОЗХІДНИКИ ОБЇДНАНІ)
-# ==========================================
-elif menu == "📦 СКЛАД (Плівки та Розхідники)":
+elif menu == "📦 Склад (Плівки та Розхідники)":
   st.title("📦 Загальний склад матеріалів та розхідників")
 
   tab_f, tab_s = st.tabs(["Rolls (Плівки)", "Supplies (Розхідні матеріали)"])
@@ -926,7 +850,10 @@ elif menu == "📦 СКЛАД (Плівки та Розхідники)":
           st.rerun()
 
     st.subheader("Розхідні матеріали на складі")
-    supplies_df = run_query("SELECT id, item_name as 'Назва', quantity as 'Кількість', unit as 'Од.', cost as 'Вартість (грн)' FROM supplies")
+    supplies_df = run_query(
+        "SELECT id, item_name as 'Назва', quantity as 'Кількість', unit as"
+        " 'Од.', cost as 'Вартість (грн)' FROM supplies"
+    )
     if not supplies_df.empty:
       st.dataframe(supplies_df, use_container_width=True)
     else:
@@ -934,7 +861,7 @@ elif menu == "📦 СКЛАД (Плівки та Розхідники)":
 
 
 # ==========================================
-# 6. ЗАРПЛАТА МАЙСТРІВ
+# 5. ЗАРПЛАТА МАЙСТРІВ
 # ==========================================
 elif menu == "💵 Зарплата майстрів":
   st.title("💵 Розрахунок зарплати майстрів (15%)")
@@ -963,7 +890,7 @@ elif menu == "💵 Зарплата майстрів":
 
 
 # ==========================================
-# 7. ФІНАНСИ ТА ЗВІТИ
+# 6. ФІНАНСИ ТА ЗВІТИ
 # ==========================================
 elif menu == "💰 Фінанси та Звіти":
   st.title("💰 Фінансові звіти (Готівка vs Банківська карта)")
@@ -1017,16 +944,85 @@ elif menu == "💰 Фінанси та Звіти":
 
 
 # ==========================================
+# 7. НАЛАШТУВАННЯ ПОСЛУГ
+# ==========================================
+elif menu == "⚙️ Налаштування послуг":
+  st.title("⚙️ Керування послугами та цінами")
+
+  with st.expander("➕ Додати нову послугу"):
+    with st.form("add_service_form"):
+      service_name = st.text_input("Назва послуги")
+      default_price = st.number_input(
+          "Базова вартість (грн)", min_value=0.0, value=1000.0, step=100.0
+      )
+
+      submitted_service = st.form_submit_button("Додати послугу")
+      if submitted_service and service_name:
+        run_query(
+            "INSERT INTO services (service_name, default_price) VALUES (?, ?)",
+            (service_name, default_price),
+            fetch=False,
+        )
+        st.success("Нову послугу успішно додано!")
+        st.rerun()
+
+  st.subheader("Редагування існуючих послуг")
+  services_df = run_query("SELECT * FROM services")
+
+  if not services_df.empty:
+    for _, s_row in services_df.iterrows():
+      with st.expander(
+          f"✏️ {s_row['service_name']} — {s_row['default_price']} грн"
+      ):
+        with st.form(f"edit_srv_{s_row['id']}"):
+          upd_name = st.text_input(
+              "Назва послуги",
+              value=s_row["service_name"],
+              key=f"name_{s_row['id']}",
+          )
+          upd_price = st.number_input(
+              "Ціна (грн)",
+              value=float(s_row["default_price"]),
+              step=50.0,
+              key=f"prc_{s_row['id']}",
+          )
+
+          col_b1, col_b2 = st.columns(2)
+          with col_b1:
+            save_s = st.form_submit_button("💾 Зберегти зміни")
+          with col_b2:
+            del_s = st.form_submit_button("🗑️ Видалити послугу")
+
+          if save_s:
+            run_query(
+                "UPDATE services SET service_name = ?, default_price = ? WHERE"
+                " id = ?",
+                (upd_name, upd_price, s_row["id"]),
+                fetch=False,
+            )
+            st.success("Послугу оновлено!")
+            st.rerun()
+
+          if del_s:
+            run_query(
+                "DELETE FROM services WHERE id = ?", (s_row["id"],), fetch=False
+            )
+            st.warning("Послугу видалено!")
+            st.rerun()
+  else:
+    st.info("Немає доданих послуг.")
+
+
+# ==========================================
 # 8. НАЛАШТУВАННЯ СИСТЕМИ
 # ==========================================
 elif menu == "⚙️ Налаштування системи":
   st.title("⚙️ Налаштування системи та безпеки даних")
 
-  st.subheader("💾 Автозбереження та резервна копія бази даних")
+  st.subheader("💾 Резервна копія бази даних")
   st.write(
-      "✅ **Автозбереження активне:** База даних автоматично оновлюється"
-      " після кожної дії в пам'яті сервера.\n\nЗавжди можете завантажити"
-      " резервну копію файлу на випадок оновлень сервера:"
+      "Для гарантії того, що дані ніколи не втратяться при оновленні сервера,"
+      " регулярно завантажуйте актуальний файл бази даних:"
   )
 
   if os.path.exists(DB_NAME):
@@ -1034,7 +1030,7 @@ elif menu == "⚙️ Налаштування системи":
       st.download_button(
           label="📥 Завантажити резервну копію бази (.db)",
           data=f,
-          file_name="tinting_crm_backup.db",
+          file_name=f"tinting_crm_backup_{datetime.now().strftime('%Y%m%d')}.db",
           mime="application/octet-stream",
       )
   else:
