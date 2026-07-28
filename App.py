@@ -11,16 +11,25 @@ def init_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
-  # Таблиця клієнтів та авто
+  # Таблиця клієнтів
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
-            phone TEXT,
+            phone TEXT
+        )
+    """)
+
+  # Таблиця автомобілів (прив'язана до клієнта)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cars (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER,
             car_brand TEXT,
             car_model TEXT,
             car_number TEXT,
-            car_year INTEGER
+            car_year INTEGER,
+            FOREIGN KEY(client_id) REFERENCES clients(id)
         )
     """)
 
@@ -45,30 +54,41 @@ def init_db():
         )
     """)
 
-  # Таблиця записів та фінансів
+  # Таблиця записів (головна)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             client_id INTEGER,
-            service_id INTEGER,
+            car_id INTEGER,
             film_id INTEGER,
             meters_used REAL,
             total_price REAL,
-            payment_type TEXT, -- 'cash' або 'transfer'
+            payment_type TEXT,
             cost_price REAL,
             master_percent REAL,
             master_payout REAL,
-            status TEXT, -- 'Заплановано', 'В роботі', 'Виконано', 'Скасовано'
+            status TEXT,
             date TEXT,
             time TEXT,
             warranty_months INTEGER,
             photo_path TEXT,
             FOREIGN KEY(client_id) REFERENCES clients(id),
-            FOREIGN KEY(service_id) REFERENCES services(id),
+            FOREIGN KEY(car_id) REFERENCES cars(id),
             FOREIGN KEY(film_id) REFERENCES inventory(id)
         )
     """)
 
+  # Проміжна таблиця для зв'язку "Запис <-> Кілька послуг"
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS appointment_services (
+            appointment_id INTEGER,
+            service_id INTEGER,
+            FOREIGN KEY(appointment_id) REFERENCES appointments(id),
+            FOREIGN KEY(service_id) REFERENCES services(id)
+        )
+    """)
+
+  # Додамо базові послуги, якщо їх немає
   cursor.execute("SELECT COUNT(*) FROM services")
   if cursor.fetchone()[0] == 0:
     default_services = [
@@ -168,7 +188,6 @@ if menu == "📊 Головний екран (Dashboard)":
   )
   cars_in_work = len(df_in_progress)
 
-  # Перевірка на залишок менше 3 метрів
   df_critical_stock = run_query(
       "SELECT film_name, meters_left FROM inventory WHERE meters_left < 3.0"
   )
@@ -183,13 +202,13 @@ if menu == "📊 Головний екран (Dashboard)":
   col5.metric("🚗 Авто в роботі", f"{cars_in_work}")
 
   next_app = run_query(
-      """SELECT a.time, s.service_name FROM appointments a 
-               JOIN services s ON a.service_id = s.id 
+      """SELECT a.time, c.car_brand || ' ' || c.car_model as car FROM appointments a 
+               JOIN cars c ON a.car_id = c.id 
                WHERE a.date = ? AND a.status = 'Заплановано' ORDER BY a.time ASC LIMIT 1""",
       (today_str,),
   )
   next_text = (
-      f"{next_app.iloc[0]['time']} — {next_app.iloc[0]['service_name']}"
+      f"{next_app.iloc[0]['time']} — {next_app.iloc[0]['car']}"
       if not next_app.empty
       else "Немає запланованих"
   )
@@ -204,7 +223,6 @@ if menu == "📊 Головний екран (Dashboard)":
 
   st.divider()
 
-  # Головне сповіщення про плівки, яких залишилося менше 3 метрів
   if not df_critical_stock.empty:
     st.error(
         "🚨 **УВАГА! Наступні позиції плівок закінчуються (залишилось менше 3"
@@ -216,18 +234,18 @@ if menu == "📊 Головний екран (Dashboard)":
           " м**!"
       )
 
-  # Пошук за держномером
+  # Швидкий пошук за держномером
   st.subheader("🔍 Швидкий пошук авто за держномером")
   search_query = st.text_input(
       "Введіть держномер або частину номера (наприклад, 7777):"
   )
   if search_query:
     found_cars = run_query(
-        """SELECT c.name, c.phone, c.car_brand || ' ' || c.car_model as car, c.car_number,
-                  s.service_name, a.date, a.warranty_months 
+        """SELECT cl.name, cl.phone, c.car_brand || ' ' || c.car_model as car, c.car_number,
+                  a.date, a.status, a.total_price 
            FROM appointments a
-           JOIN clients c ON a.client_id = c.id
-           JOIN services s ON a.service_id = s.id
+           JOIN clients cl ON a.client_id = cl.id
+           JOIN cars c ON a.car_id = c.id
            WHERE c.car_number LIKE ?""",
         (f"%{search_query}%",),
     )
@@ -258,71 +276,56 @@ if menu == "📊 Головний екран (Dashboard)":
 elif menu == "📅 Записи та Календар":
   st.title("📅 Керування записами")
 
-  with st.expander("➕ Додати новий запис / послугу"):
-    clients_df = run_query(
-        "SELECT id, name, phone, car_brand, car_model, car_number FROM clients"
-    )
+  with st.expander("➕ Створити новий запис (з авто і клієнтом)"):
     services_df = run_query("SELECT id, service_name, default_price FROM services")
     inventory_df = run_query("SELECT id, film_name, meters_left FROM inventory")
 
-    client_options = (
-        {
-            f"{row['name']} ({row['car_brand']} {row['car_model']} [{row['car_number']}])": row[
-                "id"
-            ]
-            for _, row in clients_df.iterrows()
-        }
-        if not clients_df.empty
-        else {}
-    )
-
-    service_options = (
-        {
-            f"{row['service_name']} ({row['default_price']} грн)": row["id"]
-            for _, row in services_df.iterrows()
-        }
-        if not services_df.empty
-        else {}
-    )
-
-    film_options = (
-        {
-            f"{row['film_name']} (Залишок: {row['meters_left']} м)": row["id"]
-            for _, row in inventory_df.iterrows()
-        }
-        if not inventory_df.empty
-        else {}
-    )
-
     with st.form("add_appointment_form"):
-      st.subheader("Деталі візиту")
-      if client_options:
-        selected_client_label = st.selectbox(
-            "Клієнт та авто", list(client_options.keys())
-        )
-        client_id = client_options[selected_client_label]
-      else:
-        client_id = None
-        st.warning("Спочатку додайте клієнта у вкладці 'Клієнти та Авто'!")
+      st.subheader("1. Контактні дані клієнта")
+      client_name = st.text_input("Ім'я клієнта")
+      client_phone = st.text_input("Телефон клієнта")
 
-      if service_options:
-        selected_service_label = st.selectbox(
-            "Послуга", list(service_options.keys())
-        )
-        service_id = service_options[selected_service_label]
-      else:
-        service_id = None
-        st.warning("Додайте послуги у вкладці 'Налаштування послуг'!")
-
-      use_film = st.checkbox(
-          "Використовувати плівку зі складу (тонування / бронеплівка)"
+      st.subheader("2. Дані автомобіля")
+      car_brand = st.text_input("Марка авто (наприклад, BMW)")
+      car_model = st.text_input("Модель авто (наприклад, X5)")
+      car_number = st.text_input(
+          "Державний номер (наприклад, КА7777ВХ)"
+      ).upper()
+      car_year = st.number_input(
+          "Рік випуску", min_value=1990, max_value=2026, value=2022
       )
+
+      st.subheader("3. Вибір послуг (можна вибрати кілька)")
+      selected_services = []
+      if not services_df.empty:
+        for _, s_row in services_df.iterrows():
+          if st.checkbox(
+              f"{s_row['service_name']} ({s_row['default_price']} грн)",
+              key=f"srv_{s_row['id']}",
+          ):
+            selected_services.append(s_row["id"])
+      else:
+        st.warning("Спочатку додайте послуги у налаштуваннях!")
+
+      st.subheader("4. Плівка та матеріали")
+      use_film = st.checkbox("Використовувати плівку зі складу")
       film_id = None
       meters_used = 0.0
 
+      film_options = (
+          {
+              f"{row['film_name']} (Залишок: {row['meters_left']} м)": row[
+                  "id"
+              ]
+              for _, row in inventory_df.iterrows()
+          }
+          if not inventory_df.empty
+          else {}
+      )
+
       if use_film and film_options:
         selected_film_label = st.selectbox(
-            "Вибрати плівку", list(film_options.keys())
+            "Виберіть плівку", list(film_options.keys())
         )
         film_id = film_options[selected_film_label]
         meters_used = st.number_input(
@@ -330,9 +333,9 @@ elif menu == "📅 Записи та Календар":
         )
 
       total_price = st.number_input(
-          "Підсумкова ціна для клієнта (грн)",
+          "Загальна ціна для клієнта (грн)",
           min_value=0.0,
-          value=3000.0,
+          value=3500.0,
           step=100.0,
       )
 
@@ -350,7 +353,6 @@ elif menu == "📅 Записи та Календар":
             "Статус", ["Заплановано", "В роботі", "Виконано", "Скасовано"]
         )
 
-      st.subheader("Зарплата майстра та додатково")
       master_percent = st.slider(
           "Відсоток майстра від роботи (%)", min_value=0, max_value=60, value=30
       )
@@ -364,25 +366,45 @@ elif menu == "📅 Записи та Календар":
       date = st.date_input("Дата візиту", value=datetime.now())
       time = st.time_input("Час візиту", value=datetime.now().time())
 
-      submitted = st.form_submit_button("Зберегти запис")
-      if submitted and client_id and service_id:
+      submitted = st.form_submit_button("Зберегти запис та авто")
+
+      if submitted and client_name and car_brand and selected_services:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        # Зберігаємо клієнта
+        cursor.execute(
+            "INSERT INTO clients (name, phone) VALUES (?, ?)",
+            (client_name, client_phone),
+        )
+        client_id = cursor.lastrowid
+
+        # Зберігаємо авто
+        cursor.execute(
+            """INSERT INTO cars (client_id, car_brand, car_model, car_number, car_year) 
+                   VALUES (?, ?, ?, ?, ?)""",
+            (client_id, car_brand, car_model, car_number, car_year),
+        )
+        car_id = cursor.lastrowid
+
+        # Розрахунок собівартості плівки
         cost_price = 0.0
         if film_id and meters_used > 0:
-          film_info = run_query(
+          cursor.execute(
               "SELECT cost_per_meter, meters_left FROM inventory WHERE id = ?",
               (film_id,),
           )
-          cost_per_meter = film_info.iloc[0]["cost_per_meter"]
-          current_meters = film_info.iloc[0]["meters_left"]
-          cost_price = meters_used * cost_per_meter
+          f_row = cursor.fetchone()
+          if f_row:
+            cost_per_meter, current_meters = f_row[0], f_row[1]
+            cost_price = meters_used * cost_per_meter
 
-          if status in ["В роботі", "Виконано"]:
-            new_meters = max(0.0, current_meters - meters_used)
-            run_query(
-                "UPDATE inventory SET meters_left = ? WHERE id = ?",
-                (new_meters, film_id),
-                fetch=False,
-            )
+            if status in ["В роботі", "Виконано"]:
+              new_meters = max(0.0, current_meters - meters_used)
+              cursor.execute(
+                  "UPDATE inventory SET meters_left = ? WHERE id = ?",
+                  (new_meters, film_id),
+              )
 
         master_payout = total_price * (master_percent / 100.0)
 
@@ -392,14 +414,15 @@ elif menu == "📅 Записи та Календар":
           with open(photo_path, "wb") as f:
             f.write(photo_file.getbuffer())
 
-        run_query(
-            """INSERT INTO appointments (client_id, service_id, film_id, meters_used, 
+        # Зберігаємо сам запис
+        cursor.execute(
+            """INSERT INTO appointments (client_id, car_id, film_id, meters_used, 
                    total_price, payment_type, cost_price, master_percent, master_payout, 
                    status, date, time, warranty_months, photo_path) 
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 client_id,
-                service_id,
+                car_id,
                 film_id,
                 meters_used,
                 total_price,
@@ -413,19 +436,37 @@ elif menu == "📅 Записи та Календар":
                 warranty_months,
                 photo_path,
             ),
-            fetch=False,
         )
+        appointment_id = cursor.lastrowid
 
-        st.success("Запис успішно створено!")
+        # Зберігаємо обрані послуги у проміжну таблицю
+        for s_id in selected_services:
+          cursor.execute(
+              "INSERT INTO appointment_services (appointment_id, service_id)"
+              " VALUES (?, ?)",
+              (appointment_id, s_id),
+          )
+
+        conn.commit()
+        conn.close()
+
+        st.success(
+            "Запис, клієнт та автомобіль успішно збережено в базі даних!"
+        )
         st.rerun()
+      elif submitted:
+        st.warning(
+            "Будь ласка, заповніть ім'я клієнта, марку авто та виберіть хоча б"
+            " одну послугу!"
+        )
 
   st.subheader("Список усіх записів")
   app_list = run_query("""
-        SELECT a.id, c.name, c.car_brand || ' ' || c.car_model as car, c.car_number,
-               s.service_name, a.total_price, a.payment_type, a.status, a.date, a.time, a.warranty_months
+        SELECT a.id, cl.name as client, c.car_brand || ' ' || c.car_model as car, c.car_number,
+               a.total_price, a.payment_type, a.status, a.date, a.time, a.warranty_months
         FROM appointments a
-        JOIN clients c ON a.client_id = c.id
-        JOIN services s ON a.service_id = s.id
+        JOIN clients cl ON a.client_id = cl.id
+        JOIN cars c ON a.car_id = c.id
         ORDER BY a.date DESC, a.time DESC
     """)
   if not app_list.empty:
@@ -435,37 +476,42 @@ elif menu == "📅 Записи та Календар":
 
 
 # ==========================================
-# 3. КЛІЄНТИ ТА АВТОМОБІЛІ
+# 3. КЛІЄНТИ ТА АВТОМОБІЛІ (З підрахунком)
 # ==========================================
 elif menu == "👥 Клієнти та Авто":
-  st.title("👥 База клієнтів та автомобілів")
+  st.title("👥 База клієнтів, їхні авто та витрати")
 
-  with st.expander("➕ Додати нового клієнта"):
-    with st.form("add_client_form"):
-      name = st.text_input("Ім'я клієнта")
-      phone = st.text_input("Телефон")
-      car_brand = st.text_input("Марка авто (наприклад, Audi)")
-      car_model = st.text_input("Модель авто (наприклад, A6)")
-      car_number = st.text_input(
-          "Державний номер авто (наприклад, КА7777ВХ)"
-      ).upper()
-      car_year = st.number_input("Рік випуску", min_value=1990, max_value=2026, value=2022)
-
-      submitted_client = st.form_submit_button("Зберегти клієнта")
-      if submitted_client and name:
-        run_query(
-            """INSERT INTO clients (name, phone, car_brand, car_model, car_number, car_year) 
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-            (name, phone, car_brand, car_model, car_number, car_year),
-            fetch=False,
-        )
-        st.success(f"Клієнта {name} додано!")
-        st.rerun()
-
-  st.subheader("Усі клієнти")
   clients_df = run_query("SELECT * FROM clients")
+
   if not clients_df.empty:
-    st.dataframe(clients_df, use_container_width=True)
+    for _, client in clients_df.iterrows():
+      with st.expander(f"👤 {client['name']} (Тел: {client['phone']})"):
+        # Шукаємо всі авто цього клієнта
+        cars_df = run_query(
+            "SELECT * FROM cars WHERE client_id = ?", (client["id"],)
+        )
+
+        # Рахуємо загальну суму, яку цей клієнт залишив за всі машини
+        spent_df = run_query(
+            """SELECT SUM(total_price) as total_spent 
+               FROM appointments WHERE client_id = ? AND status = 'Виконано'""",
+            (client["id"],),
+        )
+        total_spent = (
+            spent_df.iloc[0]["total_spent"]
+            if not spent_df.empty and pd.notna(spent_df.iloc[0]["total_spent"])
+            else 0.0
+        )
+
+        st.write(
+            f"💰 **Загалом витрачено клієнтом:** `{total_spent:,.0f} грн`"
+        )
+        st.write("🚗 **Автомобілі клієнта:**")
+
+        if not cars_df.empty:
+          st.dataframe(cars_df, use_container_width=True)
+        else:
+          st.info("У цього клієнта поки немає зареєстрованих авто.")
   else:
     st.info("База клієнтів порожня.")
 
@@ -478,9 +524,7 @@ elif menu == "⚙️ Налаштування послуг":
 
   with st.expander("➕ Додати нову послугу"):
     with st.form("add_service_form"):
-      service_name = st.text_input(
-          "Назва послуги (наприклад, Хімчистка салону, Мийка люкс)"
-      )
+      service_name = st.text_input("Назва послуги")
       default_price = st.number_input(
           "Базова вартість (грн)", min_value=0.0, value=1000.0, step=100.0
       )
@@ -511,7 +555,7 @@ elif menu == "📦 Склад плівок":
 
   with st.expander("➕ Додати нову позицію на склад"):
     with st.form("add_film_form"):
-      film_name = st.text_input("Назва плівки (наприклад, Llumar PPF / UltraVision 5%)")
+      film_name = st.text_input("Назва плівки")
       category = st.selectbox(
           "Категорія",
           [
@@ -525,7 +569,7 @@ elif menu == "📦 Склад плівок":
           "Кількість на складі (пог. метрів)", min_value=0.0, value=30.0, step=1.0
       )
       min_limit = st.number_input(
-          "Мінімальний залишок (попередження)", min_value=0.0, value=5.0, step=1.0
+          "Мінімальний залишок", min_value=0.0, value=5.0, step=1.0
       )
       cost_per_meter = st.number_input(
           "Собівартість 1 метра (грн)", min_value=0.0, value=250.0, step=10.0
@@ -557,11 +601,10 @@ elif menu == "💰 Фінанси та Звіти":
   st.title("💰 Фінансові звіти")
 
   fin_data = run_query("""
-        SELECT a.date, s.service_name, a.total_price, a.cost_price, a.master_payout,
+        SELECT a.date, a.total_price, a.cost_price, a.master_payout,
                (a.total_price - a.cost_price - a.master_payout) as net_profit, 
                a.payment_type, a.status
         FROM appointments a
-        JOIN services s ON a.service_id = s.id
         WHERE a.status = 'Виконано'
         ORDER BY a.date DESC
     """)
@@ -572,7 +615,7 @@ elif menu == "💰 Фінанси та Звіти":
 
     col1, col2 = st.columns(2)
     col1.metric("Загальний дохід", f"{total_rev:,.0f} грн")
-    col2.metric("Чистий прибуток (після всіх витрат)", f"{total_prof:,.0f} грн")
+    col2.metric("Чистий прибуток", f"{total_prof:,.0f} грн")
 
     st.divider()
     st.subheader("Детальна історія закритих замовлень")
