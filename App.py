@@ -8,7 +8,7 @@ st.set_page_config(
     page_title="Detailing & Tinting CRM Pro", page_icon="🚗", layout="wide"
 )
 
-SYSTEM_PASSWORD = "123"
+SYSTEM_PASSWORD = "blzl"
 
 
 def check_password():
@@ -64,23 +64,11 @@ def init_db():
       " KEY AUTOINCREMENT, appointment_id INTEGER, inventory_id INTEGER,"
       " qty_used REAL)"
   )
-  # Таблиця для історії витрат зі складу
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS inventory_log (id INTEGER PRIMARY KEY"
       " AUTOINCREMENT, date TEXT, item_name TEXT, car_info TEXT, qty_used REAL,"
       " unit TEXT, meters_left_after REAL)"
   )
-
-  # Перевірка наявності нових колонок у старій базі
-  cursor.execute("PRAGMA table_info(appointments);")
-  columns = [col[1] for col in cursor.fetchall()]
-  if "material_cost" not in columns:
-    cursor.execute("ALTER TABLE appointments ADD COLUMN material_cost REAL;")
-  if "net_profit" not in columns:
-    cursor.execute("ALTER TABLE appointments ADD COLUMN net_profit REAL;")
-  if "payment_type" not in columns:
-    cursor.execute("ALTER TABLE appointments ADD COLUMN payment_type TEXT;")
-
   conn.commit()
   conn.close()
 
@@ -103,7 +91,6 @@ def run_query(query, params=(), fetch=True):
     conn.close()
 
 
-# Навігація через стейт для підтримки переходу з головної сторінки
 if "selected_menu" not in st.session_state:
   st.session_state["selected_menu"] = "🏠 Головна (Огляд)"
 
@@ -117,7 +104,6 @@ menu_options = [
     "📊 Звіти та Аналітика",
 ]
 
-# Синхронізація селекту з боковим меню
 selected_menu = st.sidebar.selectbox(
     "Виберіть розділ",
     menu_options,
@@ -183,7 +169,6 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
   if not next_app.empty:
     row = next_app.iloc[0]
 
-    # Отримуємо послуги для найближчого запису
     srv_ids = run_query(
         "SELECT service_id FROM appointment_services WHERE appointment_id = ?",
         (row["id"],),
@@ -192,7 +177,8 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
     if not srv_ids.empty:
       all_s = run_query("SELECT * FROM services")
       matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
-      services_text = ", ".join(matched_services["service_name"].tolist())
+      if not matched_services.empty:
+        services_text = ", ".join(matched_services["service_name"].tolist())
 
     st.success(
         f"📅 **Дата/Час:** {row['date']} о {row['time']}\n\n🚗 **Автомобіль:"
@@ -234,7 +220,8 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
         if not srv_ids.empty:
           all_s = run_query("SELECT * FROM services")
           matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
-          services_text = ", ".join(matched_services["service_name"].tolist())
+          if not matched_services.empty:
+            services_text = ", ".join(matched_services["service_name"].tolist())
 
         with st.expander(
             f"{status_color} {row['date']} {row['time']} | {row['client_name']}"
@@ -258,7 +245,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 ].index(row["status"]),
             )
 
-            # Розрахунок рекомендованої суми на основі послуг
             recommended_price = 0.0
             st.markdown("#### 🛠️ Послуги та вартість:")
             if not matched_services.empty:
@@ -300,7 +286,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
             inv_data = run_query("SELECT * FROM inventory")
 
-            # Динамічне додавання матеріалів через стейт
             if f"mat_count_{row['id']}" not in st.session_state:
               st.session_state[f"mat_count_{row['id']}"] = 1
 
@@ -351,7 +336,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                   new_status == "Виконано" and row["status"] != "Виконано"
               )
 
-              # Очищаємо попередні зв'язки матеріалів для цього запису
               cursor.execute(
                   "DELETE FROM appointment_inventory WHERE appointment_id = ?",
                   (row["id"],),
@@ -374,7 +358,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                     i_name_db, cost_per_unit, meters_left_db, unit_db = inv_res
                     mat_cost += cost_per_unit * q_val
 
-                    # Зберігаємо у проміжну таблицю запису
                     cursor.execute(
                         """INSERT INTO appointment_inventory (appointment_id, inventory_id, qty_used) 
                                        VALUES (?, ?, ?)""",
@@ -387,7 +370,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                           "UPDATE inventory SET meters_left = ? WHERE id = ?",
                           (new_meters_left, m_id),
                       )
-                      # Записуємо в історію витрат складу
                       cursor.execute(
                           """INSERT INTO inventory_log (date, item_name, car_info, qty_used, unit, meters_left_after) 
                                          VALUES (?, ?, ?, ?, ?, ?)""",
@@ -440,7 +422,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
       selected_services = []
       if not services_df.empty:
         for _, s_row in services_df.iterrows():
-          # Виводимо послугу та її ціну
           if st.checkbox(
               f"{s_row['service_name']} — {s_row['default_price']} грн",
               key=f"srv_chk_{s_row['id']}",
@@ -508,7 +489,6 @@ elif st.session_state["selected_menu"] == "📦 Склад":
             f"{row['item_name']} ({row['category']}){width_info} — Залишок:"
             f" {row['meters_left']} {row['unit']}"
         ):
-          # Блок виведення історії витрат по цій позиції
           st.markdown("💬 **Історія витрат (Вихід):**")
           log_df = run_query(
               "SELECT date, car_info, qty_used, unit, meters_left_after FROM"
@@ -700,7 +680,7 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
 
 # 4. БАЗА КЛІЄНТІВ ТА БОРГИ
 elif st.session_state["selected_menu"] == "👥 База клієнтів та Борги":
-  st.header("👥 База клієнтів, пошук та борги")
+  st.header("👥 База клієнтів, пошук, борги та редагування записів")
 
   debts_df = run_query(
       "SELECT id, client_name, client_phone, car_brand, car_model, car_number,"
@@ -718,91 +698,213 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
       )
     st.markdown("---")
 
-  st.subheader("🔍 Пошук клієнта та історія авто")
-  search_query = st.text_input(
-      "Введіть ім'я, телефон або марку/номер авто для пошуку"
+  tab_search, tab_edit_all = st.tabs(
+      ["🔍 Пошук та історія клієнта", "✏️ Редагувати / Видалити записи (Борги)"]
   )
 
-  if search_query:
-    q = f"%{search_query}%"
-    client_search_df = run_query(
-        """SELECT * FROM appointments 
-                                 WHERE client_name LIKE ? OR client_phone LIKE ? OR car_brand LIKE ? OR car_number LIKE ? 
-                                 ORDER BY date DESC""",
-        (q, q, q, q),
-    )
-  else:
-    client_search_df = run_query(
-        "SELECT * FROM appointments ORDER BY date DESC"
+  with tab_search:
+    search_query = st.text_input(
+        "Введіть ім'я, телефон або марку/номер авто для пошуку"
     )
 
-  if not client_search_df.empty:
-    unique_clients = client_search_df["client_name"].unique()
-    selected_client = st.selectbox(
-        "Виберіть клієнта з результатів для детального перегляду",
-        ["Всі клієнти"] + list(unique_clients),
-    )
-
-    if selected_client != "Всі клієнти":
-      filtered_client_df = client_search_df[
-          client_search_df["client_name"] == selected_client
-      ]
-      total_spent = filtered_client_df[filtered_client_df["status"] == "Виконано"][
-          "final_price"
-      ].sum()
-      st.info(
-          f"👤 **Клієнт:** {selected_client} | 📞 **Телефон:**"
-          f" {filtered_client_df.iloc[0]['client_phone']} | 💰 **Загалом"
-          f" сплачено за весь період:** {total_spent:,.2f} грн"
+    if search_query:
+      q = f"%{search_query}%"
+      client_search_df = run_query(
+          """SELECT * FROM appointments 
+                                   WHERE client_name LIKE ? OR client_phone LIKE ? OR car_brand LIKE ? OR car_number LIKE ? 
+                                   ORDER BY date DESC""",
+          (q, q, q, q),
+      )
+    else:
+      client_search_df = run_query(
+          "SELECT * FROM appointments ORDER BY date DESC"
       )
 
-      display_df = filtered_client_df[[
-          "date",
-          "car_brand",
-          "car_model",
-          "car_number",
-          "status",
-          "payment_type",
-          "final_price",
-          "comment",
-      ]]
-      display_df.columns = [
-          "Дата",
-          "Марка",
-          "Модель",
-          "Держ. номер",
-          "Статус",
-          "Оплата",
-          "Ціна (грн)",
-          "Коментар",
-      ]
-      st.dataframe(display_df, use_container_width=True)
+    if not client_search_df.empty:
+      unique_clients = client_search_df["client_name"].unique()
+      selected_client = st.selectbox(
+          "Виберіть клієнта з результатів для детального перегляду",
+          ["Всі клієнти"] + list(unique_clients),
+      )
+
+      if selected_client != "Всі клієнти":
+        filtered_client_df = client_search_df[
+            client_search_df["client_name"] == selected_client
+        ]
+        total_spent = filtered_client_df[
+            filtered_client_df["status"] == "Виконано"
+        ]["final_price"].sum()
+        st.info(
+            f"👤 **Клієнт:** {selected_client} | 📞 **Телефон:**"
+            f" {filtered_client_df.iloc[0]['client_phone']} | 💰 **Загалом"
+            f" сплачено за весь період:** {total_spent:,.2f} грн"
+        )
+
+        display_df = filtered_client_df[[
+            "date",
+            "car_brand",
+            "car_model",
+            "car_number",
+            "status",
+            "payment_type",
+            "final_price",
+            "comment",
+        ]]
+        display_df.columns = [
+            "Дата",
+            "Марка",
+            "Модель",
+            "Держ. номер",
+            "Статус",
+            "Оплата",
+            "Ціна (грн)",
+            "Коментар",
+        ]
+        st.dataframe(display_df, use_container_width=True)
+      else:
+        display_df = client_search_df[[
+            "date",
+            "client_name",
+            "client_phone",
+            "car_brand",
+            "car_model",
+            "car_number",
+            "status",
+            "payment_type",
+            "final_price",
+        ]]
+        display_df.columns = [
+            "Дата",
+            "Клієнт",
+            "Телефон",
+            "Марка",
+            "Модель",
+            "Держ. номер",
+            "Статус",
+            "Оплата",
+            "Ціна (грн)",
+        ]
+        st.dataframe(display_df, use_container_width=True)
     else:
-      display_df = client_search_df[[
-          "date",
-          "client_name",
-          "client_phone",
-          "car_brand",
-          "car_model",
-          "car_number",
-          "status",
-          "payment_type",
-          "final_price",
-      ]]
-      display_df.columns = [
-          "Дата",
-          "Клієнт",
-          "Телефон",
-          "Марка",
-          "Модель",
-          "Держ. номер",
-          "Статус",
-          "Оплата",
-          "Ціна (грн)",
-      ]
-      st.dataframe(display_df, use_container_width=True)
-  else:
-    st.info("Нічого не знайдено.")
+      st.info("Нічого не знайдено.")
+
+  with tab_edit_all:
+    st.subheader(
+        "🛠️ Управління та редагування будь-якого запису (погашення боргів)"
+    )
+    all_apps = run_query("SELECT * FROM appointments ORDER BY date DESC")
+    if not all_apps.empty:
+      for _, a_row in all_apps.iterrows():
+        p_type_label = (
+            f"[{a_row['payment_type']}]"
+            if pd.notna(a_row["payment_type"])
+            else "[Не вказано]"
+        )
+        is_debt_mark = "🔴 БОРГ" if a_row["payment_type"] == "Борг" else "🟢"
+        with st.expander(
+            f"{is_debt_mark} {a_row['date']} | Клієнт: {a_row['client_name']}"
+            f" | Авто: {a_row['car_brand']} {a_row['car_model']}"
+            f" ({a_row['car_number']}) | Сума: {a_row['final_price']} грн"
+            f" {p_type_label}"
+        ):
+          with st.form(f"admin_edit_app_{a_row['id']}"):
+            ed_client = st.text_input(
+                "Ім'я клієнта",
+                value=str(a_row["client_name"]),
+                key=f"ed_c_{a_row['id']}",
+            )
+            ed_phone = st.text_input(
+                "Телефон",
+                value=str(a_row["client_phone"]),
+                key=f"ed_p_{a_row['id']}",
+            )
+            ed_brand = st.text_input(
+                "Марка авто",
+                value=str(a_row["car_brand"]),
+                key=f"ed_b_{a_row['id']}",
+            )
+            ed_model = st.text_input(
+                "Модель авто",
+                value=str(a_row["car_model"]),
+                key=f"ed_mo_{a_row['id']}",
+            )
+            ed_num = st.text_input(
+                "Держ. номер",
+                value=str(a_row["car_number"]),
+                key=f"ed_n_{a_row['id']}",
+            )
+
+            ed_price = st.number_input(
+                "Фінальна ціна (грн)",
+                value=float(a_row["final_price"])
+                if pd.notna(a_row["final_price"])
+                else 0.0,
+                key=f"ed_pr_{a_row['id']}",
+            )
+
+            pay_opts = ["Готівка", "Банківська карта", "Борг"]
+            cur_p = (
+                a_row["payment_type"]
+                if pd.notna(a_row["payment_type"])
+                else "Готівка"
+            )
+            ed_pay = st.selectbox(
+                "Тип оплати (зміни на готівку/карту, якщо погашено борг)",
+                pay_opts,
+                index=pay_opts.index(cur_p) if cur_p in pay_opts else 0,
+                key=f"ed_pay_{a_row['id']}",
+            )
+
+            status_opts = ["Заплановано", "В роботі", "Виконано", "Скасовано"]
+            cur_stat = a_row["status"]
+            ed_status = st.selectbox(
+                "Статус",
+                status_opts,
+                index=status_opts.index(cur_stat)
+                if cur_stat in status_opts
+                else 0,
+                key=f"ed_stat_{a_row['id']}",
+            )
+
+            col_sub1, col_sub2 = st.columns(2)
+            with col_sub1:
+              save_btn = st.form_submit_button("💾 Зберегти зміни")
+            with col_sub2:
+              del_btn = st.form_submit_button(
+                  "🗑️ Видалити цей запис", type="primary"
+              )
+
+            if save_btn:
+              run_query(
+                  """UPDATE appointments SET client_name = ?, client_phone = ?, car_brand = ?, 
+                                         car_model = ?, car_number = ?, final_price = ?, 
+                                         payment_type = ?, status = ? WHERE id = ?""",
+                  (
+                      ed_client,
+                      ed_phone,
+                      ed_brand,
+                      ed_model,
+                      ed_num,
+                      ed_price,
+                      ed_pay,
+                      ed_status,
+                      a_row["id"],
+                  ),
+                  fetch=False,
+              )
+              st.success("Запис успішно оновлено!")
+              st.rerun()
+
+            if del_btn:
+              run_query(
+                  "DELETE FROM appointments WHERE id = ?",
+                  (a_row["id"],),
+                  fetch=False,
+              )
+              st.warning("Запис видалено!")
+              st.rerun()
+    else:
+      st.info("Архів записів порожній.")
 
 # 5. ЗВІТИ ТА АНАЛІТИКА
 elif st.session_state["selected_menu"] == "📊 Звіти та Аналітика":
