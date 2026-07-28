@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import os
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -11,7 +12,6 @@ def init_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
-  # Таблиця клієнтів
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20,7 +20,6 @@ def init_db():
         )
     """)
 
-  # Таблиця автомобілів (прив'язана до клієнта)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS cars (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +32,6 @@ def init_db():
         )
     """)
 
-  # Таблиця послуг
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS services (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +40,6 @@ def init_db():
         )
     """)
 
-  # Таблиця складу плівок та матеріалів
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +51,17 @@ def init_db():
         )
     """)
 
-  # Таблиця записів (головна)
+  # Таблиця додаткових розхідників
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supplies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT,
+            quantity REAL,
+            unit TEXT,
+            cost REAL
+        )
+    """)
+
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,7 +85,6 @@ def init_db():
         )
     """)
 
-  # Проміжна таблиця для зв'язку "Запис <-> Кілька послуг"
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS appointment_services (
             appointment_id INTEGER,
@@ -88,7 +94,6 @@ def init_db():
         )
     """)
 
-  # Додамо базові послуги, якщо їх немає
   cursor.execute("SELECT COUNT(*) FROM services")
   if cursor.fetchone()[0] == 0:
     default_services = [
@@ -123,23 +128,35 @@ def run_query(query, params=(), fetch=True):
     conn.close()
 
 
-# --- Інтерфейс Streamlit ---
 st.set_page_config(
     page_title="Detailing & Tinting CRM", page_icon="🚗", layout="wide"
 )
 
+# --- Налаштування додаткових функцій у сайдбарі ---
 st.sidebar.title("🚗 Меню CRM")
-menu = st.sidebar.selectbox(
-    "Виберіть розділ",
-    [
-        "📊 Головний екран (Dashboard)",
-        "📅 Записи та Календар",
-        "👥 Клієнти та Авто",
-        "⚙️ Налаштування послуг",
-        "📦 Склад плівок",
-        "💰 Фінанси та Звіти",
-    ],
-)
+
+st.sidebar.divider()
+st.sidebar.subheader("⚙️ Увімкнення функцій")
+enable_photos = st.sidebar.checkbox("📸 Фотофіксація авто", value=True)
+enable_salaries = st.sidebar.checkbox("💵 Зарплата майстрів", value=True)
+enable_supplies = st.sidebar.checkbox("🧴 Облік розхідників", value=True)
+
+menu_options = [
+    "📊 Головний екран (Dashboard)",
+    "📅 Записи та Календар",
+    "👥 Клієнти та Авто",
+    "⚙️ Налаштування послуг",
+    "📦 Склад плівок",
+]
+
+if enable_supplies:
+  menu_options.append("🧴 Розхідні матеріали")
+if enable_salaries:
+  menu_options.append("💵 Зарплата майстрів")
+
+menu_options.append("💰 Фінанси та Звіти")
+
+menu = st.sidebar.selectbox("Виберіть розділ", menu_options)
 
 today_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -234,7 +251,6 @@ if menu == "📊 Головний екран (Dashboard)":
           " м**!"
       )
 
-  # Швидкий пошук за держномером
   st.subheader("🔍 Швидкий пошук авто за держномером")
   search_query = st.text_input(
       "Введіть держномер або частину номера (наприклад, 7777):"
@@ -253,21 +269,6 @@ if menu == "📊 Головний екран (Dashboard)":
       st.dataframe(found_cars, use_container_width=True)
     else:
       st.info("Автомобілів за таким номером не знайдено.")
-
-  st.subheader("📊 Динаміка прибутків")
-  df_all_done = run_query("""
-        SELECT date, total_price, (total_price - cost_price - master_payout) as profit 
-        FROM appointments WHERE status = 'Виконано'
-    """)
-  if not df_all_done.empty:
-    df_all_done["date"] = pd.to_datetime(df_all_done["date"])
-    df_grouped = (
-        df_all_done.groupby("date")[["total_price", "profit"]].sum().reset_index()
-    )
-    df_grouped = df_grouped.set_index("date")
-    st.line_chart(df_grouped, color=["#2ecc71", "#3498db"])
-  else:
-    st.info("Ще немає завершених замовлень для графіків.")
 
 
 # ==========================================
@@ -359,9 +360,12 @@ elif menu == "📅 Записи та Календар":
       warranty_months = st.number_input(
           "Гарантія (місяців)", min_value=0, value=12, step=1
       )
-      photo_file = st.file_uploader(
-          "Фотофіксація (До / Після)", type=["jpg", "png", "jpeg"]
-      )
+
+      photo_file = None
+      if enable_photos:
+        photo_file = st.file_uploader(
+            "📸 Фотофіксація авто (До / Після)", type=["jpg", "png", "jpeg"]
+        )
 
       date = st.date_input("Дата візиту", value=datetime.now())
       time = st.time_input("Час візиту", value=datetime.now().time())
@@ -372,14 +376,12 @@ elif menu == "📅 Записи та Календар":
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
 
-        # Зберігаємо клієнта
         cursor.execute(
             "INSERT INTO clients (name, phone) VALUES (?, ?)",
             (client_name, client_phone),
         )
         client_id = cursor.lastrowid
 
-        # Зберігаємо авто
         cursor.execute(
             """INSERT INTO cars (client_id, car_brand, car_model, car_number, car_year) 
                    VALUES (?, ?, ?, ?, ?)""",
@@ -387,7 +389,6 @@ elif menu == "📅 Записи та Календар":
         )
         car_id = cursor.lastrowid
 
-        # Розрахунок собівартості плівки
         cost_price = 0.0
         if film_id and meters_used > 0:
           cursor.execute(
@@ -409,12 +410,12 @@ elif menu == "📅 Записи та Календар":
         master_payout = total_price * (master_percent / 100.0)
 
         photo_path = ""
-        if photo_file is not None:
-          photo_path = f"saved_{datetime.now().strftime('%Y%m%d%H%M%S')}_{photo_file.name}"
+        if enable_photos and photo_file is not None:
+          os.makedirs("uploads", exist_ok=True)
+          photo_path = f"uploads/{datetime.now().strftime('%Y%m%d%H%M%S')}_{photo_file.name}"
           with open(photo_path, "wb") as f:
             f.write(photo_file.getbuffer())
 
-        # Зберігаємо сам запис
         cursor.execute(
             """INSERT INTO appointments (client_id, car_id, film_id, meters_used, 
                    total_price, payment_type, cost_price, master_percent, master_payout, 
@@ -439,7 +440,6 @@ elif menu == "📅 Записи та Календар":
         )
         appointment_id = cursor.lastrowid
 
-        # Зберігаємо обрані послуги у проміжну таблицю
         for s_id in selected_services:
           cursor.execute(
               "INSERT INTO appointment_services (appointment_id, service_id)"
@@ -450,33 +450,60 @@ elif menu == "📅 Записи та Календар":
         conn.commit()
         conn.close()
 
-        st.success(
-            "Запис, клієнт та автомобіль успішно збережено в базі даних!"
-        )
+        st.success("Запис успішно збережено!")
         st.rerun()
-      elif submitted:
-        st.warning(
-            "Будь ласка, заповніть ім'я клієнта, марку авто та виберіть хоча б"
-            " одну послугу!"
-        )
 
-  st.subheader("Список усіх записів")
-  app_list = run_query("""
-        SELECT a.id, cl.name as client, c.car_brand || ' ' || c.car_model as car, c.car_number,
-               a.total_price, a.payment_type, a.status, a.date, a.time, a.warranty_months
+  st.divider()
+  st.subheader("📋 Список усіх записів та редагування")
+
+  appointments_df = run_query("""
+        SELECT a.id, cl.name as client, c.car_brand || ' ' || c.car_model as car, 
+               c.car_number, a.total_price, a.status, a.date, a.time, a.photo_path
         FROM appointments a
         JOIN clients cl ON a.client_id = cl.id
         JOIN cars c ON a.car_id = c.id
         ORDER BY a.date DESC, a.time DESC
     """)
-  if not app_list.empty:
-    st.dataframe(app_list, use_container_width=True)
+
+  if not appointments_df.empty:
+    for _, row in appointments_df.iterrows():
+      with st.expander(
+          f"📅 {row['date']} {row['time']} | {row['client']} — {row['car']} ({row['car_number']}) | Статус: {row['status']} | Сума: {row['total_price']} грн"
+      ):
+        if enable_photos and row["photo_path"] and os.path.exists(row["photo_path"]):
+          st.image(row["photo_path"], caption="Фото автомобіля", width=300)
+
+        with st.form(f"edit_app_{row['id']}"):
+          new_status = st.selectbox(
+              "Змінити статус",
+              ["Заплановано", "В роботі", "Виконано", "Скасовано"],
+              index=[
+                  "Заплановано",
+                  "В роботі",
+                  "Виконано",
+                  "Скасовано",
+              ].index(row["status"]),
+          )
+          new_price = st.number_input(
+              "Ціна (грн)", value=float(row["total_price"]), step=100.0
+          )
+
+          update_btn = st.form_submit_button("Оновити запис")
+          if update_btn:
+            run_query(
+                "UPDATE appointments SET status = ?, total_price = ? WHERE id ="
+                " ?",
+                (new_status, new_price, row["id"]),
+                fetch=False,
+            )
+            st.success("Запис успішно оновлено!")
+            st.rerun()
   else:
-    st.info("Ще немає жодного запису.")
+    st.info("Ще немає записів.")
 
 
 # ==========================================
-# 3. КЛІЄНТИ ТА АВТОМОБІЛІ (З підрахунком)
+# 3. КЛІЄНТИ ТА АВТОМОБІЛІ
 # ==========================================
 elif menu == "👥 Клієнти та Авто":
   st.title("👥 База клієнтів, їхні авто та витрати")
@@ -486,12 +513,9 @@ elif menu == "👥 Клієнти та Авто":
   if not clients_df.empty:
     for _, client in clients_df.iterrows():
       with st.expander(f"👤 {client['name']} (Тел: {client['phone']})"):
-        # Шукаємо всі авто цього клієнта
         cars_df = run_query(
             "SELECT * FROM cars WHERE client_id = ?", (client["id"],)
         )
-
-        # Рахуємо загальну суму, яку цей клієнт залишив за всі машини
         spent_df = run_query(
             """SELECT SUM(total_price) as total_spent 
                FROM appointments WHERE client_id = ? AND status = 'Виконано'""",
@@ -520,7 +544,7 @@ elif menu == "👥 Клієнти та Авто":
 # 4. НАЛАШТУВАННЯ ПОСЛУГ
 # ==========================================
 elif menu == "⚙️ Налаштування послуг":
-  st.title("⚙️ Керування послугами")
+  st.title("⚙️ Керування послугами та цінами")
 
   with st.expander("➕ Додати нову послугу"):
     with st.form("add_service_form"):
@@ -539,10 +563,47 @@ elif menu == "⚙️ Налаштування послуг":
         st.success("Нову послугу успішно додано!")
         st.rerun()
 
-  st.subheader("Список доступних послуг")
+  st.subheader("Редагування існуючих послуг")
   services_df = run_query("SELECT * FROM services")
+
   if not services_df.empty:
-    st.dataframe(services_df, use_container_width=True)
+    for _, s_row in services_df.iterrows():
+      with st.form(f"edit_srv_{s_row['id']}"):
+        col_s1, col_s2 = st.columns([3, 1])
+        with col_s1:
+          upd_name = st.text_input(
+              "Назва послуги", value=s_row["service_name"], key=f"name_{s_row['id']}"
+          )
+        with col_s2:
+          upd_price = st.number_input(
+              "Ціна (грн)",
+              value=float(s_row["default_price"]),
+              step=50.0,
+              key=f"prc_{s_row['id']}",
+          )
+
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+          save_s = st.form_submit_button("💾 Зберегти зміни")
+        with col_b2:
+          del_s = st.form_submit_button("🗑️ Видалити послугу")
+
+        if save_s:
+          run_query(
+              "UPDATE services SET service_name = ?, default_price = ? WHERE id"
+              " = ?",
+              (upd_name, upd_price, s_row["id"]),
+              fetch=False,
+          )
+          st.success("Послугу оновлено!")
+          st.rerun()
+
+        if del_s:
+          run_query(
+              "DELETE FROM services WHERE id = ?", (s_row["id"],), fetch=False
+          )
+          st.warning("Послугу видалено!")
+          st.rerun()
   else:
     st.info("Немає доданих послуг.")
 
@@ -595,7 +656,67 @@ elif menu == "📦 Склад плівок":
 
 
 # ==========================================
-# 6. ФІНАНСИ ТА ЗВІТИ
+# 6. РОЗХІДНІ МАТЕРІАЛИ (якщо увімкнено)
+# ==========================================
+elif enable_supplies and menu == "🧴 Розхідні матеріали":
+  st.title("🧴 Облік дрібних розхідників (знежирювач, серветки, леза)")
+
+  with st.expander("➕ Додати розхідник"):
+    with st.form("add_supply_form"):
+      item_name = st.text_input("Назва матеріалу")
+      quantity = st.number_input("Кількість", min_value=0.0, value=10.0)
+      unit = st.selectbox("Одиниця виміру", ["шт", "л", "упак", "м"])
+      cost = st.number_input("Загальна вартість (грн)", min_value=0.0, value=500.0)
+
+      sub_sup = st.form_submit_button("Додати")
+      if sub_sup and item_name:
+        run_query(
+            "INSERT INTO supplies (item_name, quantity, unit, cost) VALUES (?,"
+            " ?, ?, ?)",
+            (item_name, quantity, unit, cost),
+            fetch=False,
+        )
+        st.success("Розхідник додано!")
+        st.rerun()
+
+  st.subheader("Наявні розхідники")
+  supplies_df = run_query("SELECT * FROM supplies")
+  if not supplies_df.empty:
+    st.dataframe(supplies_df, use_container_width=True)
+  else:
+    st.info("Список розхідників порожній.")
+
+
+# ==========================================
+# 7. ЗАРПЛАТА МАЙСТРІВ (якщо увімкнено)
+# ==========================================
+elif enable_salaries and menu == "💵 Зарплата майстрів":
+  st.title("💵 Розрахунок зарплати майстрів")
+
+  master_data = run_query("""
+        SELECT a.date, c.car_brand || ' ' || c.car_model as car, 
+               a.total_price, a.master_percent, a.master_payout, a.status
+        FROM appointments a
+        JOIN cars c ON a.car_id = c.id
+        WHERE a.status = 'Виконано'
+        ORDER BY a.date DESC
+    """)
+
+  if not master_data.empty:
+    total_salaries = master_data["master_payout"].sum()
+    st.metric(
+        "💰 Загальна сума виплат майстрам (за виконані)",
+        f"{total_salaries:,.0f} грн",
+    )
+    st.divider()
+    st.subheader("Деталізація по замовленнях")
+    st.dataframe(master_data, use_container_width=True)
+  else:
+    st.info("Немає завершених замовлень для розрахунку зарплати.")
+
+
+# ==========================================
+# 8. ФІНАНСИ ТА ЗВІТИ
 # ==========================================
 elif menu == "💰 Фінанси та Звіти":
   st.title("💰 Фінансові звіти")
