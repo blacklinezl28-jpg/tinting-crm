@@ -110,7 +110,6 @@ menu_options = [
     "📊 Звіти та Аналітика",
 ]
 
-# Використовуємо radio замість selectbox, щоб усі кнопки були одразу на екрані без розгортання
 current_index = (
     menu_options.index(st.session_state["selected_menu"])
     if st.session_state["selected_menu"] in menu_options
@@ -136,13 +135,12 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
       m_lim = float(l_row["min_limit"])
       if m_left <= 0:
         st.error(
-            f"🚨 УВАГА! Кількість «{l_row['item_name']}» дорівнювала або впала до"
-            f" 0 ({m_left} {l_row['unit']})! Матеріал повністю закінчився!"
+            f"🚨 УВАГА! Матеріал «{l_row['item_name']}» повністю закінчився!"
         )
       elif m_left <= m_lim:
         st.warning(
             f"⚠️ Кількість «{l_row['item_name']}» менша за критичний ліміт"
-            f" ({m_left} {l_row['unit']} із {m_lim} {l_row['unit']})"
+            f" ({m_left} {l_row['unit']})"
         )
 
   today_df = run_query(
@@ -444,6 +442,19 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
     st.subheader("Створити новий запис")
     services_df = run_query("SELECT * FROM services")
 
+    # Зберігаємо вибрані послуги поза формою для надійності фіксації
+    st.markdown("### 🛠️ Виберіть послуги")
+    selected_services = []
+    if not services_df.empty:
+      for _, s_row in services_df.iterrows():
+        if st.checkbox(
+            f"{s_row['service_name']} — {s_row['default_price']} грн",
+            key=f"srv_chk_{s_row['id']}",
+        ):
+          selected_services.append(s_row["id"])
+    else:
+      st.info("Спочатку додайте послуги у розділі «🛠️ Послуги».")
+
     with st.form("new_appointment_form"):
       st.markdown("### 👤 Дані клієнта та авто")
       c_name = st.text_input("Ім'я та Прізвище клієнта")
@@ -451,16 +462,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
       car_brand = st.text_input("Марка авто (наприклад, Toyota)")
       car_model = st.text_input("Модель (наприклад, Camry)")
       car_number = st.text_input("Держ. номер")
-
-      st.markdown("### 🛠️ Плановані послуги")
-      selected_services = []
-      if not services_df.empty:
-        for _, s_row in services_df.iterrows():
-          if st.checkbox(
-              f"{s_row['service_name']} — {s_row['default_price']} грн",
-              key=f"srv_chk_{s_row['id']}",
-          ):
-            selected_services.append(s_row["id"])
 
       st.markdown("### 📅 Дата та час")
       date = st.date_input("Дата запису")
@@ -501,10 +502,19 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
           conn.commit()
           conn.close()
-          st.success(f"✅ Записано! Дата запису: {date} о {time}")
+
+          # Зберігаємо стан для виведення зеленого повідомлення після перезавантаження
+          st.session_state["success_msg"] = (
+              f"✅ Успішно записано! Клієнт: {c_name}, дата: {date} о {time}"
+          )
           st.rerun()
         else:
           st.error("Введіть ім'я клієнта та марку автомобіля.")
+
+    # Виведення зеленого повідомлення поза формою
+    if "success_msg" in st.session_state:
+      st.success(st.session_state["success_msg"])
+      del st.session_state["success_msg"]
 
 # 2. СКЛАД
 elif st.session_state["selected_menu"] == "📦 Склад":
@@ -535,8 +545,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
               st.markdown(
                   f"- 📅 **{l_row['date']}** | 🚗 Авто: **{l_row['car_info']}** |"
                   f" Витрачено: **-{l_row['qty_used']} {l_row['unit']}** |"
-                  f" Залишок на складі: **{l_row['meters_left_after']}"
-                  f" {l_row['unit']}**"
+                  f" Залишок: **{l_row['meters_left_after']} {l_row['unit']}**"
               )
           else:
             st.info("Ще не було витрат по цій позиції.")
@@ -564,7 +573,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
               key=f"inv_m_{row['id']}",
           )
           i_min_limit = st.number_input(
-              "Критичний ліміт (межа попередження)",
+              "Критичний ліміт попередження",
               value=float(row["min_limit"])
               if "min_limit" in row and pd.notna(row["min_limit"])
               else 5.0,
@@ -641,9 +650,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
       meters_left = st.number_input(
           "Кількість (погонних метрів або штук)", value=30.0
       )
-      min_limit = st.number_input(
-          "Критичний ліміт попередження (наприклад, 5)", value=5.0
-      )
+      min_limit = st.number_input("Критичний ліміт попередження", value=5.0)
       price_usd = st.number_input("Ціна за одиницю в доларах ($)", value=15.0)
       exchange_rate = st.number_input("Курс долара до гривні", value=41.0)
       unit = st.text_input("Одиниця виміру (м або шт)", value="м")
@@ -714,7 +721,7 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
 
   with tab2:
     with st.form("add_service_form"):
-      s_name = st.text_input("Назва послуги (наприклад, Тонування задньої півсфери)")
+      s_name = st.text_input("Назва послуги")
       s_price = st.number_input("Ціна за замовчуванням (грн)", value=2500.0)
       if st.form_submit_button("Додати послугу"):
         if s_name:
@@ -742,7 +749,6 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
           f"🔴 **Клієнт:** {d_row['client_name']} ({d_row['client_phone']}) |"
           f" **Авто:** {d_row['car_brand']} {d_row['car_model']}"
           f" ({d_row['car_number']}) | **Борг:** **{d_row['final_price']} грн**"
-          f" (від {d_row['date']})"
       )
     st.markdown("---")
 
@@ -785,7 +791,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
         st.info(
             f"👤 **Клієнт:** {selected_client} | 📞 **Телефон:**"
             f" {filtered_client_df.iloc[0]['client_phone']} | 💰 **Загалом"
-            f" сплачено за весь період:** {total_spent:,.2f} грн"
+            f" сплачено:** {total_spent:,.2f} грн"
         )
 
         display_df = filtered_client_df[[
@@ -837,9 +843,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
       st.info("Нічого не знайдено.")
 
   with tab_edit_all:
-    st.subheader(
-        "🛠️ Управління та редагування будь-якого запису (погашення боргів)"
-    )
+    st.subheader("🛠️ Управління та редагування записів")
     all_apps = run_query("SELECT * FROM appointments ORDER BY date DESC")
     if not all_apps.empty:
       for _, a_row in all_apps.iterrows():
@@ -897,7 +901,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
                 else "Готівка"
             )
             ed_pay = st.selectbox(
-                "Тип оплати (зміни на готівку/карту, якщо погашено борг)",
+                "Тип оплати",
                 pay_opts,
                 index=pay_opts.index(cur_p) if cur_p in pay_opts else 0,
                 key=f"ed_pay_{a_row['id']}",
@@ -973,9 +977,7 @@ elif st.session_state["selected_menu"] == "📊 Звіти та Аналітик
 
     if selected_period != "За весь час":
       filtered_rep = rep_df[rep_df["Рік-Місяць"] == selected_period]
-      st.subheader(
-          f"📊 Звіт за період: {selected_period} (з 1 числа по кінець місяця)"
-      )
+      st.subheader(f"📊 Звіт за період: {selected_period}")
     else:
       filtered_rep = rep_df
       st.subheader("📊 Звіт за весь час")
@@ -1045,7 +1047,4 @@ elif st.session_state["selected_menu"] == "📊 Звіти та Аналітик
     else:
       st.info("За обраний період немає виконаних робіт.")
   else:
-    st.info(
-        "Немає даних для звітів (потрібно перевести хоча б один запис у статус"
-        " 'Виконано')."
-    )
+    st.info("Немає даних для звітів.")
