@@ -8,7 +8,7 @@ st.set_page_config(
     page_title="Detailing & Tinting CRM Pro", page_icon="🚗", layout="wide"
 )
 
-SYSTEM_PASSWORD = "blzl"
+SYSTEM_PASSWORD = "123"
 
 
 def check_password():
@@ -46,7 +46,7 @@ def init_db():
       "CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY"
       " AUTOINCREMENT, item_name TEXT, category TEXT, width_cm REAL,"
       " meters_left REAL, price_usd REAL, exchange_rate REAL,"
-      " cost_per_unit_uah REAL, unit TEXT)"
+      " cost_per_unit_uah REAL, unit TEXT, min_limit REAL DEFAULT 5.0)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointments (id INTEGER PRIMARY KEY"
@@ -69,6 +69,13 @@ def init_db():
       " AUTOINCREMENT, date TEXT, item_name TEXT, car_info TEXT, qty_used REAL,"
       " unit TEXT, meters_left_after REAL)"
   )
+
+  # Перевірка наявності min_limit у старій базі
+  cursor.execute("PRAGMA table_info(inventory);")
+  inv_cols = [col[1] for col in cursor.fetchall()]
+  if "min_limit" not in inv_cols:
+    cursor.execute("ALTER TABLE inventory ADD COLUMN min_limit REAL DEFAULT 5.0;")
+
   conn.commit()
   conn.close()
 
@@ -118,6 +125,25 @@ today_str = datetime.now().strftime("%Y-%m-%d")
 # ГОЛОВНА СТОРІНКА
 if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
   st.header("🏠 Головна панель")
+
+  # Перевірка критичних залишків на складі для сповіщень
+  low_stock_df = run_query(
+      "SELECT item_name, meters_left, min_limit, unit FROM inventory"
+  )
+  if not low_stock_df.empty:
+    for _, l_row in low_stock_df.iterrows():
+      m_left = float(l_row["meters_left"])
+      m_lim = float(l_row["min_limit"])
+      if m_left <= 0:
+        st.error(
+            f"🚨 УВАГА! Кількість «{l_row['item_name']}» дорівнювала або впала до"
+            f" 0 ({m_left} {l_row['unit']})! Матеріал повністю закінчився!"
+        )
+      elif m_left <= m_lim:
+        st.warning(
+            f"⚠️ Кількість «{l_row['item_name']}» менша за критичний ліміт"
+            f" ({m_left} {l_row['unit']} із {m_lim} {l_row['unit']})"
+        )
 
   today_df = run_query(
       "SELECT SUM(final_price) as earned, SUM(net_profit) as profit FROM"
@@ -199,9 +225,10 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
   tab1, tab2 = st.tabs(["Список записів", "➕ Записати клієнта"])
 
   with tab1:
+    # Виключаємо скасовані записи зі списку
     apps = run_query(
-        "SELECT * FROM appointments WHERE status != 'Виконано' ORDER BY date"
-        " DESC"
+        "SELECT * FROM appointments WHERE status != 'Виконано' AND status !="
+        " 'Скасований' AND status != 'Скасовано' ORDER BY date DESC"
     )
     if not apps.empty:
       for idx, row in apps.iterrows():
@@ -236,13 +263,17 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
           with st.form(f"update_app_form_{row['id']}"):
             new_status = st.selectbox(
                 "Змінити статус",
-                ["Заплановано", "В роботі", "Виконано", "Скасовано"],
+                ["Заплановано", "В роботі", "Виконано", "Скасований"],
                 index=[
                     "Заплановано",
                     "В роботі",
                     "Виконано",
-                    "Скасовано",
-                ].index(row["status"]),
+                    "Скасований",
+                ].index(
+                    row["status"]
+                    if row["status"] != "Скасовано"
+                    else "Скасований"
+                ),
             )
 
             recommended_price = 0.0
@@ -528,6 +559,13 @@ elif st.session_state["selected_menu"] == "📦 Склад":
               value=float(row["meters_left"]),
               key=f"inv_m_{row['id']}",
           )
+          i_min_limit = st.number_input(
+              "Критичний ліміт (межа попередження)",
+              value=float(row["min_limit"])
+              if "min_limit" in row and pd.notna(row["min_limit"])
+              else 5.0,
+              key=f"inv_ml_{row['id']}",
+          )
           i_p_usd = st.number_input(
               "Ціна за одиницю ($)",
               value=(
@@ -556,13 +594,15 @@ elif st.session_state["selected_menu"] == "📦 Склад":
               cost_uah = i_p_usd * i_rate
               run_query(
                   "UPDATE inventory SET item_name = ?, category = ?, width_cm ="
-                  " ?, meters_left = ?, price_usd = ?, exchange_rate = ?,"
-                  " cost_per_unit_uah = ?, unit = ? WHERE id = ?",
+                  " ?, meters_left = ?, min_limit = ?, price_usd = ?,"
+                  " exchange_rate = ?, cost_per_unit_uah = ?, unit = ? WHERE id"
+                  " = ?",
                   (
                       i_name,
                       i_cat,
                       i_width,
                       i_meters,
+                      i_min_limit,
                       i_p_usd,
                       i_rate,
                       cost_uah,
@@ -597,6 +637,9 @@ elif st.session_state["selected_menu"] == "📦 Склад":
       meters_left = st.number_input(
           "Кількість (погонних метрів або штук)", value=30.0
       )
+      min_limit = st.number_input(
+          "Критичний ліміт попередження (наприклад, 5)", value=5.0
+      )
       price_usd = st.number_input("Ціна за одиницю в доларах ($)", value=15.0)
       exchange_rate = st.number_input("Курс долара до гривні", value=41.0)
       unit = st.text_input("Одиниця виміру (м або шт)", value="м")
@@ -605,14 +648,15 @@ elif st.session_state["selected_menu"] == "📦 Склад":
         if item_name:
           cost_uah = price_usd * exchange_rate
           run_query(
-              """INSERT INTO inventory (item_name, category, width_cm, meters_left, 
+              """INSERT INTO inventory (item_name, category, width_cm, meters_left, min_limit, 
                                            price_usd, exchange_rate, cost_per_unit_uah, unit) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
               (
                   item_name,
                   category,
                   width_cm,
                   meters_left,
+                  min_limit,
                   price_usd,
                   exchange_rate,
                   cost_uah,
@@ -855,7 +899,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
                 key=f"ed_pay_{a_row['id']}",
             )
 
-            status_opts = ["Заплановано", "В роботі", "Виконано", "Скасовано"]
+            status_opts = ["Заплановано", "В роботі", "Виконано", "Скасований"]
             cur_stat = a_row["status"]
             ed_status = st.selectbox(
                 "Статус",
@@ -947,6 +991,25 @@ elif st.session_state["selected_menu"] == "📊 Звіти та Аналітик
       st.markdown("---")
       st.subheader("Детальна таблиця виконаних робіт")
 
+      # Формуємо список послуг для кожного рядка у звіті
+      services_list_col = []
+      all_services_df = run_query("SELECT * FROM services")
+      for _, f_row in filtered_rep.iterrows():
+        srv_ids = run_query(
+            "SELECT service_id FROM appointment_services WHERE appointment_id"
+            " = ?",
+            (f_row["id"],),
+        )
+        if not srv_ids.empty and not all_services_df.empty:
+          matched = all_services_df[
+              all_services_df["id"].isin(srv_ids["service_id"])
+          ]
+          services_list_col.append(
+              ", ".join(matched["service_name"].tolist())
+          )
+        else:
+          services_list_col.append("Не вказано")
+
       formatted_rep = filtered_rep[[
           "date",
           "client_name",
@@ -959,12 +1022,16 @@ elif st.session_state["selected_menu"] == "📊 Звіти та Аналітик
           "net_profit",
           "comment",
       ]].copy()
+
+      formatted_rep.insert(5, "Послуги", services_list_col)
+
       formatted_rep.columns = [
           "Дата",
           "Клієнт",
           "Марка",
           "Модель",
           "Держ. номер",
+          "Послуги",
           "Оплата",
           "Дохід (грн)",
           "Собівартість мат.",
