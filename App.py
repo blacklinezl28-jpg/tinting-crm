@@ -8,7 +8,7 @@ st.set_page_config(
     page_title="Detailing & Tinting CRM Pro", page_icon="🚗", layout="wide"
 )
 
-SYSTEM_PASSWORD = "123"
+SYSTEM_PASSWORD = "blzl"
 
 
 def check_password():
@@ -36,7 +36,6 @@ DB_NAME = "tinting_crm.db"
 def init_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
-  # Увімкнення підтримки зовнішніх ключів (Foreign Keys) для каскадного видалення
   cursor.execute("PRAGMA foreign_keys = ON;")
 
   cursor.execute(
@@ -279,6 +278,7 @@ if menu == "👥 Клієнти та Авто":
           st.rerun()
     else:
       st.warning("Спочатку додайте хоча б одного клієнта.")
+
 elif menu == "🎞️ Склад плівок":
   st.header("🎞️ Облік плівок на складі")
   tab1, tab2 = st.tabs(["Список плівок та Редагування", "Додати плівку"])
@@ -519,7 +519,7 @@ elif menu == "🛠️ Послуги":
         )
         st.success("Послугу додано!")
         st.rerun()
- даних для звітів.")
+
 elif menu == "📅 Записи":
   st.header("📅 Журнал записів")
   tab1, tab2, tab3 = st.tabs(["Всі записи", "Новий запис", "Керування записом"])
@@ -724,7 +724,7 @@ elif menu == "📅 Записи":
                 (app_id_to_edit,),
                 fetch=False,
             )
-            st.warning("Запис видалено!")
+            st.warning("Видалено!")
             st.rerun()
     else:
       st.info("Немає записів для редагування.")
