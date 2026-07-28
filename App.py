@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 # --- Налаштування безпеки (Пароль) ---
-SYSTEM_PASSWORD = "blzl"  # <--- Можете змінити пароль тут за бажанням
+SYSTEM_PASSWORD = "123"  # <--- Можете змінити пароль тут за бажанням
 
 
 def check_password():
@@ -74,7 +74,6 @@ def init_db():
         )
     """)
 
-  # Оновлена таблиця складу з урахуванням ширини рулону та валют ($ / грн)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,7 +164,6 @@ def run_query(query, params=(), fetch=True):
     conn.close()
 
 
-# --- Зберігаємо стан вмикання функцій у Session State ---
 if "enable_photos" not in st.session_state:
   st.session_state.enable_photos = True
 if "enable_salaries" not in st.session_state:
@@ -173,8 +171,6 @@ if "enable_salaries" not in st.session_state:
 if "enable_supplies" not in st.session_state:
   st.session_state.enable_supplies = True
 
-
-# --- Меню CRM ---
 st.sidebar.title("🚗 Меню CRM")
 st.sidebar.divider()
 
@@ -205,7 +201,6 @@ if menu == "📊 Головний екран (Dashboard)":
   st.title("📊 Головний екран")
   st.write(f"Сьогодні: **{datetime.now().strftime('%d.%m.%Y')}**")
 
-  # Каса за сьогодні (всі разом: готівка + перекази)
   df_today = run_query(
       "SELECT SUM(total_price) as sum FROM appointments WHERE date = ? AND status ='Виконано'",
       (today_str,),
@@ -216,7 +211,6 @@ if menu == "📊 Головний екран (Dashboard)":
       else 0.0
   )
 
-  # Каса за місяць (всі разом)
   df_month = run_query(
       "SELECT SUM(total_price) as sum FROM appointments WHERE date LIKE ? AND status = 'Виконано'",
       (f"{current_month_prefix}%",),
@@ -227,7 +221,6 @@ if menu == "📊 Головний екран (Dashboard)":
       else 0.0
   )
 
-  # Прибуток за сьогодні
   df_prof_today = run_query(
       """SELECT SUM(total_price - cost_price - master_payout) as profit 
          FROM appointments WHERE date = ? AND status = 'Виконано'""",
@@ -305,7 +298,10 @@ elif menu == "📅 Записи та Календар":
 
   with st.expander("➕ Створити новий запис (з вибором плівки та майстра)"):
     services_df = run_query("SELECT id, service_name, default_price FROM services")
-    inventory_df = run_query("SELECT id, film_name, width_cm, meters_left, cost_per_meter_uah FROM inventory")
+    inventory_df = run_query(
+        "SELECT id, film_name, width_cm, meters_left, cost_per_meter_uah FROM"
+        " inventory"
+    )
 
     with st.form("add_appointment_form"):
       st.subheader("1. Дані клієнта")
@@ -415,7 +411,6 @@ elif menu == "📅 Записи та Календар":
         )
         car_id = cursor.lastrowid
 
-        # Автоматичний розрахунок собівартості плівки
         cost_price = 0.0
         if film_id and meters_used > 0:
           cursor.execute(
@@ -428,7 +423,6 @@ elif menu == "📅 Записи та Календар":
             cost_per_meter_uah, current_meters = f_row[0], f_row[1]
             cost_price = meters_used * cost_per_meter_uah
 
-            # Списуємо зі складу якщо в роботі або виконано
             if status in ["В роботі", "Виконано"]:
               new_meters = max(0.0, current_meters - meters_used)
               cursor.execute(
@@ -500,9 +494,12 @@ elif menu == "📅 Записи та Календар":
 
   if not appointments_df.empty:
     for _, row in appointments_df.iterrows():
-      with st.expander(
-          f"📅 {row['Дата']} {str(row['Час'])[:5]} | {row['Клієнт']} — {row['Марка']} {row['Модель']} ({row['Держномер']}) | Статус: {row['Статус']} | Сума: {row['Сума (грн)']} грн"
-      ):
+      expander_label = (
+          f"📅 {row['Дата']} {str(row['Час'])[:5]} | {row['Клієнт']} —"
+          f" {row['Марка']} {row['Модель']} ({row['Держномер']}) | Статус:"
+          f" {row['Статус']} | Сума: {row['Сума (грн)']} грн"
+      )
+      with st.expander(expander_label):
         st.write(
             f"💰 **Сума:** {row['Сума (грн)']} грн | 📦 **Собівартість матеріалу:"
             f"** {row['Собівартість']:.1f} грн | 💵 **Майстру:**"
@@ -547,7 +544,7 @@ elif menu == "📅 Записи та Календар":
 
 
 # ==========================================
-# 3. КЛІЄНТИ ТА АВТОМОБІЛІ (ЗРУЧНИЙ ПОШУК)
+# 3. КЛІЄНТИ ТА АВТОМОБІЛІ
 # ==========================================
 elif menu == "👥 Клієнти та Авто":
   st.title("👥 База клієнтів, авто та універсальний пошук")
@@ -558,7 +555,7 @@ elif menu == "👥 Клієнти та Авто":
 
   if search_q:
     query_str = """
-            SELECT DISTINCT cl.id, cl.name as 'Ім\\'я', cl.phone as 'Телефон'
+            SELECT DISTINCT cl.id, cl.name, cl.phone
             FROM clients cl
             LEFT JOIN cars c ON cl.id = c.client_id
             WHERE cl.name LIKE ? OR cl.phone LIKE ? OR c.car_number LIKE ?
@@ -566,14 +563,13 @@ elif menu == "👥 Клієнти та Авто":
     param = f"%{search_q}%"
     clients_df = run_query(query_str, (param, param, param))
   else:
-    clients_df = run_query(
-        "SELECT id, name as 'Ім\\'я', phone as 'Телефон' FROM clients"
-    )
+    clients_df = run_query("SELECT id, name, phone FROM clients")
 
   if not clients_df.empty:
     st.write(f"Знайдено клієнтів: **{len(clients_df)}**")
     for _, client in clients_df.iterrows():
-      with st.expander(f"👤 {client['Ім\\'я']} (Тел: {client['Телефон']})"):
+      exp_title = f"👤 {client['name']} (Тел: {client['phone']})"
+      with st.expander(exp_title):
         cars_df = run_query(
             """SELECT car_brand as 'Марка', car_model as 'Модель', car_number as 'Держномер', car_year as 'Рік' 
                FROM cars WHERE client_id = ?""",
@@ -672,7 +668,7 @@ elif menu == "⚙️ Налаштування послуг":
 
 
 # ==========================================
-# 5. СКЛАД ПЛІВОК (З УРАХУВАННЯМ КУРСУ ДОЛАРА ТА ШИРИНИ)
+# 5. СКЛАД ПЛІВОК
 # ==========================================
 elif menu == "📦 Склад плівок":
   st.title("📦 Облік плівок (ширина рулону та ціна в USD/UAH)")
@@ -693,10 +689,8 @@ elif menu == "📦 Склад плівок":
 
       col_w1, col_w2 = st.columns(2)
       with col_w1:
-        width_cm = st.number_input(
-            "Ширина рулону (см)",
-            options=[152.0, 102.0, 50.0, 75.0, 120.0],
-            value=152.0,
+        width_cm = st.selectbox(
+            "Ширина рулону (см)", options=[152.0, 102.0, 50.0, 75.0, 120.0]
         )
       with col_w2:
         meters_left = st.number_input(
@@ -768,7 +762,7 @@ elif menu == "📦 Склад плівок":
 
 
 # ==========================================
-# 6. РОЗХІДНІ МАТЕРІАЛИ (якщо увімкнено)
+# 6. РОЗХІДНІ МАТЕРІАЛИ
 # ==========================================
 elif st.session_state.enable_supplies and menu == "🧴 Розхідні матеріали":
   st.title("🧴 Облік дрібних розхідників")
@@ -800,7 +794,7 @@ elif st.session_state.enable_supplies and menu == "🧴 Розхідні мат�
 
 
 # ==========================================
-# 7. ЗАРПЛАТА МАЙСТРІВ (якщо увімкнено)
+# 7. ЗАРПЛАТА МАЙСТРІВ
 # ==========================================
 elif st.session_state.enable_salaries and menu == "💵 Зарплата майстрів":
   st.title("💵 Розрахунок зарплати майстрів")
@@ -829,12 +823,11 @@ elif st.session_state.enable_salaries and menu == "💵 Зарплата май�
 
 
 # ==========================================
-# 8. ФІНАНСИ ТА ЗВІТИ (РОЗБИВКА НА ГОТІВКУ ТА ПЕРЕКАЗИ)
+# 8. ФІНАНСИ ТА ЗВІТИ
 # ==========================================
 elif menu == "💰 Фінанси та Звіти":
   st.title("💰 Фінансові звіти (Готівка vs Банківська карта)")
 
-  # Загальні показники по типах оплати
   cash_total_df = run_query(
       "SELECT SUM(total_price) as sum FROM appointments WHERE payment_type ='cash' AND status = 'Виконано'"
   )
@@ -884,7 +877,7 @@ elif menu == "💰 Фінанси та Звіти":
 
 
 # ==========================================
-# 9. НАЛАШТУВАННЯ СИСТЕМИ (АВТОЗБЕРЕЖЕННЯ ТА БЕКАП)
+# 9. НАЛАШТУВАННЯ СИСТЕМИ
 # ==========================================
 elif menu == "⚙️ Налаштування системи":
   st.title("⚙️ Налаштування системи та безпеки даних")
