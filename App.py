@@ -51,9 +51,9 @@ def init_db():
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointments (id INTEGER PRIMARY KEY"
       " AUTOINCREMENT, client_name TEXT, client_phone TEXT, car_brand TEXT,"
-      " car_model TEXT, car_number TEXT, date TEXT, time TEXT, status TEXT,"
-      " final_price REAL, payment_type TEXT, material_cost REAL,"
-      " net_profit REAL, comment TEXT)"
+      " car_model TEXT, car_number TEXT, created_at TEXT, date TEXT, time"
+      " TEXT, status TEXT, final_price REAL, payment_type TEXT, material_cost"
+      " REAL, net_profit REAL, comment TEXT)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointment_services (appointment_id"
@@ -69,6 +69,14 @@ def init_db():
       " AUTOINCREMENT, date TEXT, item_name TEXT, car_info TEXT, qty_used REAL,"
       " unit TEXT, meters_left_after REAL)"
   )
+
+  # Міграція для таблиці appointments (якщо колонка створена раніше)
+  cursor.execute("PRAGMA table_info(appointments);")
+  app_cols = [col[1] for col in cursor.fetchall()]
+  if "created_at" not in app_cols:
+    cursor.execute(
+        "ALTER TABLE appointments ADD COLUMN created_at TEXT DEFAULT '';"
+    )
 
   cursor.execute("PRAGMA table_info(inventory);")
   inv_cols = [col[1] for col in cursor.fetchall()]
@@ -193,23 +201,13 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
   if not next_app.empty:
     row = next_app.iloc[0]
 
-    srv_ids = run_query(
-        "SELECT service_id FROM appointment_services WHERE appointment_id = ?",
-        (row["id"],),
-    )
-    services_text = "Не вказано"
-    if not srv_ids.empty:
-      all_s = run_query("SELECT * FROM services")
-      if not all_s.empty:
-        matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
-        if not matched_services.empty:
-          services_text = ", ".join(matched_services["service_name"].tolist())
-
     st.success(
-        f"📅 **Дата/Час:** {row['date']} о {row['time']}\n\n🚗 **Автомобіль:"
-        f"** {row['car_brand']} {row['car_model']} ({row['car_number']})\n\n👤"
-        f" **Клієнт:** {row['client_name']} ({row['client_phone']})\n\n🛠️"
-        f" **Послуги:** {services_text}"
+        f"📅 **Дата виконання робіт:** {row['date']} о {row['time']}\n\n📝"
+        f" **Дата створення запису:**"
+        f" {row['created_at'] if pd.notna(row['created_at']) and row['created_at'] != '' else 'Не вказано'}\n\n🚗"
+        f" **Автомобіль:** {row['car_brand']} {row['car_model']}"
+        f" ({row['car_number']})\n\n👤 **Клієнт:** {row['client_name']}"
+        f" ({row['client_phone']})"
     )
 
     if st.button("👉 Редагувати запис / Змінити статус"):
@@ -252,11 +250,17 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               )
 
         with st.expander(
-            f"{status_color} {row['date']} {row['time']} | {row['client_name']}"
-            f" ({row['car_brand']} {row['car_model']} - {row['car_number']}) |"
-            f" Послуги: {services_text} | Статус: {row['status']} {pay_info}"
+            f"{status_color} На виконання: {row['date']} {row['time']} |"
+            f" {row['client_name']} ({row['car_brand']} {row['car_model']} -"
+            f" {row['car_number']}) | Послуги: {services_text} | Статус:"
+            f" {row['status']} {pay_info}"
         ):
           st.write(f"**Телефон:** {row['client_phone']}")
+          st.write(
+              f"**Дата створення запису:**"
+              f" {row['created_at'] if pd.notna(row['created_at']) else 'Не вказано'}"
+          )
+          st.write(f"**Дата виконання робіт:** {row['date']} о {row['time']}")
           st.write(f"**Статус:** {row['status']}")
           st.write(f"**Замовлені послуги:** {services_text}")
 
@@ -442,7 +446,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
     st.subheader("Створити новий запис")
     services_df = run_query("SELECT * FROM services")
 
-    # Зберігаємо вибрані послуги поза формою для надійності фіксації
     st.markdown("### 🛠️ Виберіть послуги")
     selected_services = []
     if not services_df.empty:
@@ -463,8 +466,13 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
       car_model = st.text_input("Модель (наприклад, Camry)")
       car_number = st.text_input("Держ. номер")
 
-      st.markdown("### 📅 Дата та час")
-      date = st.date_input("Дата запису")
+      st.markdown("### 📅 Дати запису")
+      created_date = st.date_input(
+          "Дата створення запису (коли звернувся)", value=datetime.now()
+      )
+      work_date = st.date_input(
+          "Дата на коли записано робити (виконання робіт)", value=datetime.now()
+      )
       time = st.time_input("Час запису")
       comment = st.text_area("Початковий коментар")
 
@@ -477,15 +485,16 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
           cursor.execute(
               """INSERT INTO appointments (client_name, client_phone, car_brand, car_model, car_number, 
-                                           date, time, status, final_price, material_cost, net_profit, comment) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, 'Заплановано', 0, 0, 0, ?)""",
+                                           created_at, date, time, status, final_price, material_cost, net_profit, comment) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Заплановано', 0, 0, 0, ?)""",
               (
                   c_name,
                   c_phone,
                   car_brand,
                   car_model,
                   car_number,
-                  str(date),
+                  str(created_date),
+                  str(work_date),
                   str(time),
                   comment,
               ),
@@ -503,15 +512,14 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
           conn.commit()
           conn.close()
 
-          # Зберігаємо стан для виведення зеленого повідомлення після перезавантаження
           st.session_state["success_msg"] = (
-              f"✅ Успішно записано! Клієнт: {c_name}, дата: {date} о {time}"
+              f"✅ Успішно записано! Клієнт: {c_name}, дата виконання:"
+              f" {work_date} о {time}"
           )
           st.rerun()
         else:
           st.error("Введіть ім'я клієнта та марку автомобіля.")
 
-    # Виведення зеленого повідомлення поза формою
     if "success_msg" in st.session_state:
       st.success(st.session_state["success_msg"])
       del st.session_state["success_msg"]
@@ -795,6 +803,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
         )
 
         display_df = filtered_client_df[[
+            "created_at",
             "date",
             "car_brand",
             "car_model",
@@ -805,7 +814,8 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
             "comment",
         ]]
         display_df.columns = [
-            "Дата",
+            "Дата створення",
+            "Дата виконання",
             "Марка",
             "Модель",
             "Держ. номер",
@@ -817,6 +827,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
         st.dataframe(display_df, use_container_width=True)
       else:
         display_df = client_search_df[[
+            "created_at",
             "date",
             "client_name",
             "client_phone",
@@ -828,7 +839,8 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
             "final_price",
         ]]
         display_df.columns = [
-            "Дата",
+            "Дата створення",
+            "Дата виконання",
             "Клієнт",
             "Телефон",
             "Марка",
@@ -854,10 +866,10 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
         )
         is_debt_mark = "🔴 БОРГ" if a_row["payment_type"] == "Борг" else "🟢"
         with st.expander(
-            f"{is_debt_mark} {a_row['date']} | Клієнт: {a_row['client_name']}"
-            f" | Авто: {a_row['car_brand']} {a_row['car_model']}"
-            f" ({a_row['car_number']}) | Сума: {a_row['final_price']} грн"
-            f" {p_type_label}"
+            f"{is_debt_mark} Виконання: {a_row['date']} | Клієнт:"
+            f" {a_row['client_name']} | Авто: {a_row['car_brand']}"
+            f" {a_row['car_model']} ({a_row['car_number']}) | Сума:"
+            f" {a_row['final_price']} грн {p_type_label}"
         ):
           with st.form(f"admin_edit_app_{a_row['id']}"):
             ed_client = st.text_input(
@@ -1016,6 +1028,7 @@ elif st.session_state["selected_menu"] == "📊 Звіти та Аналітик
           services_list_col.append("Не вказано")
 
       formatted_rep = filtered_rep[[
+          "created_at",
           "date",
           "client_name",
           "car_brand",
@@ -1028,10 +1041,11 @@ elif st.session_state["selected_menu"] == "📊 Звіти та Аналітик
           "comment",
       ]].copy()
 
-      formatted_rep.insert(5, "Послуги", services_list_col)
+      formatted_rep.insert(6, "Послуги", services_list_col)
 
       formatted_rep.columns = [
-          "Дата",
+          "Дата створення",
+          "Дата виконання",
           "Клієнт",
           "Марка",
           "Модель",
