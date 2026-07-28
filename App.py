@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 # --- Налаштування безпеки (Пароль) ---
-SYSTEM_PASSWORD = "blzl"  # <--- Змініть за потреби
+SYSTEM_PASSWORD = "123"  # <--- Змініть за потреби
 
 
 def check_password():
@@ -133,13 +133,18 @@ def init_db():
         )
     """)
 
-  # Автоматична міграція нових колонок
+  # Примусова безпечна міграція відсутніх колонок
   cursor.execute("PRAGMA table_info(appointments)")
   columns = [col[1] for col in cursor.fetchall()]
+
   if "supply_id" not in columns:
     cursor.execute("ALTER TABLE appointments ADD COLUMN supply_id INTEGER")
   if "supply_qty" not in columns:
     cursor.execute("ALTER TABLE appointments ADD COLUMN supply_qty REAL")
+  if "photo_path" not in columns:
+    cursor.execute("ALTER TABLE appointments ADD COLUMN photo_path TEXT")
+  if "comment" not in columns:
+    cursor.execute("ALTER TABLE appointments ADD COLUMN comment TEXT")
 
   cursor.execute("SELECT COUNT(*) FROM services")
   if cursor.fetchone()[0] == 0:
@@ -475,7 +480,7 @@ elif menu == "📅 Записи та Календар":
                a.master_payout as 'Зарплата майстра', 
                (a.total_price - a.cost_price - a.master_payout) as 'Чистий прибуток', 
                a.status as 'Статус', a.date as 'Дата', a.time as 'Час', 
-               a.photo_path, a.comment, a.film_id, a.meters_used, a.supply_id, a.supply_qty
+               a.photo_path, a.comment, a.film_id, a.meters_used
         FROM appointments a
         JOIN clients cl ON a.client_id = cl.id
         JOIN cars c ON a.car_id = c.id
