@@ -140,9 +140,7 @@ menu = st.sidebar.selectbox(
 
 if menu == "👥 Клієнти та Авто":
   st.header("👥 Клієнти та автомобілі")
-  tab1, tab2, tab3 = st.tabs(
-      ["Список та Редагування", "Додати клієнта", "Додати авто"]
-  )
+  tab1, tab2 = st.tabs(["Список та Редагування", "➕ Додати клієнта та авто"])
 
   with tab1:
     st.subheader("Керування клієнтами та авто")
@@ -236,48 +234,49 @@ if menu == "👥 Клієнти та Авто":
       st.info("Список клієнтів порожній.")
 
   with tab2:
-    st.subheader("Новий клієнт")
-    with st.form("client_form"):
-      name = st.text_input("Ім'я та Прізвище")
-      phone = st.text_input("Телефон")
-      submitted = st.form_submit_button("Додати клієнта")
-      if submitted and name:
-        run_query(
-            "INSERT INTO clients (name, phone) VALUES (?, ?)",
-            (name, phone),
-            fetch=False,
-        )
-        st.success(f"Клієнта {name} додано!")
-        st.rerun()
+    st.subheader("Додати нового клієнта разом з автомобілем")
+    with st.form("client_car_combined_form"):
+      st.markdown("### 👤 Дані клієнта")
+      name = st.text_input("Ім'я та Прізвище клієнта")
+      phone = st.text_input("Номер телефону")
 
-  with tab3:
-    st.subheader("Новий автомобіль")
-    clients_df = get_clients()
-    if not clients_df.empty:
-      client_dict = dict(zip(clients_df["name"], clients_df["id"]))
-      with st.form("car_form"):
-        selected_client = st.selectbox(
-            "Виберіть клієнта", list(client_dict.keys())
-        )
-        brand = st.text_input("Марка авто (наприклад, BMW)")
-        model = st.text_input("Модель (наприклад, X5)")
-        number = st.text_input("Держ. номер")
-        year = st.number_input(
-            "Рік випуску", min_value=1990, max_value=2030, value=2021
-        )
-        car_submitted = st.form_submit_button("Додати автомобіль")
-        if car_submitted and brand:
-          client_id = client_dict[selected_client]
-          run_query(
-              "INSERT INTO cars (client_id, car_brand, car_model, car_number,"
-              " car_year) VALUES (?, ?, ?, ?, ?)",
-              (client_id, brand, model, number, year),
-              fetch=False,
+      st.markdown("### 🚗 Дані автомобіля")
+      brand = st.text_input("Марка авто (наприклад, Toyota)")
+      model = st.text_input("Модель (наприклад, Camry)")
+      number = st.text_input("Держ. номер (наприклад, AA1234BB)")
+      year = st.number_input(
+          "Рік випуску", min_value=1990, max_value=2030, value=2021
+      )
+
+      submitted = st.form_submit_button("Зберегти клієнта та авто")
+      if submitted:
+        if name and brand:
+          conn = sqlite3.connect(DB_NAME)
+          cursor = conn.cursor()
+          cursor.execute("PRAGMA foreign_keys = ON;")
+
+          # Додаємо клієнта
+          cursor.execute(
+              "INSERT INTO clients (name, phone) VALUES (?, ?)", (name, phone)
           )
-          st.success("Автомобіль успішно додано!")
+          client_id = cursor.lastrowid
+
+          # Додаємо авто для цього клієнта
+          cursor.execute(
+              """INSERT INTO cars (client_id, car_brand, car_model, car_number, car_year) 
+                             VALUES (?, ?, ?, ?, ?)""",
+              (client_id, brand, model, number, year),
+          )
+
+          conn.commit()
+          conn.close()
+          st.success(
+              f"Клієнта {name} та його автомобіль {brand} {model} успішно"
+              " додано!"
+          )
           st.rerun()
-    else:
-      st.warning("Спочатку додайте хоча б одного клієнта.")
+        else:
+          st.error("Будь ласка, заповніть хоча б ім'я клієнта та марку авто.")
 
 elif menu == "🎞️ Склад плівок":
   st.header("🎞️ Облік плівок на складі")
