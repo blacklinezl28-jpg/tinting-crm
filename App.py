@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Detailing & Tinting CRM", page_icon="🚗", layout="wide"
+    page_title="Detailing & Tinting CRM Pro", page_icon="🚗", layout="wide"
 )
 
 SYSTEM_PASSWORD = "123"
@@ -16,7 +16,7 @@ def check_password():
     st.session_state["authenticated"] = False
   if not st.session_state["authenticated"]:
     st.title("🔒 Авторизація в CRM-системі")
-    entered_password = st.text_input("Пароль", type="password")
+    entered_password = st.text_input("Пароль доступу", type="password")
     if st.button("Увійти"):
       if entered_password == SYSTEM_PASSWORD:
         st.session_state["authenticated"] = True
@@ -36,6 +36,9 @@ DB_NAME = "tinting_crm.db"
 def init_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
+  # Увімкнення підтримки зовнішніх ключів (Foreign Keys) для каскадного видалення
+  cursor.execute("PRAGMA foreign_keys = ON;")
+
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY"
       " AUTOINCREMENT, name TEXT, phone TEXT)"
@@ -66,11 +69,11 @@ def init_db():
       " meters_used REAL, supply_id INTEGER, supply_qty REAL, total_price REAL,"
       " payment_type TEXT, cost_price REAL, master_percent REAL,"
       " master_payout REAL, status TEXT, date TEXT, time TEXT, warranty_months"
-      " INTEGER, photo_path TEXT, comment TEXT, FOREIGN KEY(client_id)"
-      " REFERENCES clients(id) ON DELETE CASCADE, FOREIGN KEY(car_id)"
-      " REFERENCES cars(id) ON DELETE CASCADE, FOREIGN KEY(film_id)"
-      " REFERENCES inventory(id) ON DELETE SET NULL, FOREIGN KEY(supply_id)"
-      " REFERENCES supplies(id) ON DELETE SET NULL)"
+      " INTEGER, comment TEXT, FOREIGN KEY(client_id) REFERENCES clients(id)"
+      " ON DELETE CASCADE, FOREIGN KEY(car_id) REFERENCES cars(id) ON DELETE"
+      " CASCADE, FOREIGN KEY(film_id) REFERENCES inventory(id) ON DELETE SET"
+      " NULL, FOREIGN KEY(supply_id) REFERENCES supplies(id) ON DELETE SET"
+      " NULL)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointment_services (appointment_id"
@@ -88,6 +91,7 @@ init_db()
 def run_query(query, params=(), fetch=True):
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
+  cursor.execute("PRAGMA foreign_keys = ON;")
   cursor.execute(query, params)
   if fetch:
     data = cursor.fetchall()
@@ -126,11 +130,11 @@ def get_services():
 st.sidebar.title("🚗 Меню CRM")
 menu = st.sidebar.selectbox(
     "Виберіть розділ", [
-        "📅 Записи",
         "👥 Клієнти та Авто",
         "🎞️ Склад плівок",
         "📦 Розхідники",
         "🛠️ Послуги",
+        "📅 Записи",
         "📊 Звіти",
     ]
 )
@@ -172,12 +176,12 @@ if menu == "👥 Клієнти та Авто":
           st.rerun()
       with col2:
         if st.button(
-            "Видалити клієнта (і всі його авто/записи)", type="primary"
+            "Видалити клієнта (та всі його авто)", type="primary"
         ):
           run_query(
               "DELETE FROM clients WHERE id = ?", (c_id,), fetch=False
           )
-          st.warning("Клієнта видалено!")
+          st.warning("Клієнта та його автомобілі видалено!")
           st.rerun()
 
       st.markdown("---")
@@ -230,7 +234,7 @@ if menu == "👥 Клієнти та Авто":
       else:
         st.info("У цього клієнта поки немає доданих автомобілів.")
     else:
-      st.info("Список клієнті порожній.")
+      st.info("Список клієнтів порожній.")
 
   with tab2:
     st.subheader("Новий клієнт")
@@ -515,7 +519,7 @@ elif menu == "🛠️ Послуги":
         )
         st.success("Послугу додано!")
         st.rerun()
-elif menu == "📅 Записи":
+          elif menu == "📅 Записи":
   st.header("📅 Журнал записів")
   tab1, tab2, tab3 = st.tabs(["Всі записи", "Новий запис", "Керування записом"])
 
@@ -621,6 +625,7 @@ elif menu == "📅 Записи":
         if app_submitted and car_id:
           conn = sqlite3.connect(DB_NAME)
           cursor = conn.cursor()
+          cursor.execute("PRAGMA foreign_keys = ON;")
           cursor.execute(
               """INSERT INTO appointments (client_id, car_id, film_id, meters_used, supply_id, 
                                            supply_qty, total_price, payment_type, cost_price, 
@@ -648,7 +653,8 @@ elif menu == "📅 Записи":
           )
           app_id = cursor.lastrowid
 
-          if film_id:
+          # Автоматичне списування плівки зі складу при створенні запису
+          if film_id and meters_used > 0:
             cursor.execute(
                 "UPDATE inventory SET meters_left = meters_left - ? WHERE id = ?",
                 (meters_used, film_id),
@@ -746,3 +752,5 @@ elif menu == "📊 Звіти":
     st.dataframe(app_rep, use_container_width=True)
   else:
     st.info("Недостатньо даних для звітів.")
+
+    
