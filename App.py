@@ -70,7 +70,6 @@ def init_db():
       " unit TEXT, meters_left_after REAL)"
   )
 
-  # Перевірка наявності min_limit у старій базі
   cursor.execute("PRAGMA table_info(inventory);")
   inv_cols = [col[1] for col in cursor.fetchall()]
   if "min_limit" not in inv_cols:
@@ -111,12 +110,14 @@ menu_options = [
     "📊 Звіти та Аналітика",
 ]
 
-selected_menu = st.sidebar.selectbox(
-    "Виберіть розділ",
-    menu_options,
-    index=menu_options.index(st.session_state["selected_menu"])
+# Використовуємо radio замість selectbox, щоб усі кнопки були одразу на екрані без розгортання
+current_index = (
+    menu_options.index(st.session_state["selected_menu"])
     if st.session_state["selected_menu"] in menu_options
-    else 0,
+    else 0
+)
+selected_menu = st.sidebar.radio(
+    "Виберіть розділ", menu_options, index=current_index
 )
 st.session_state["selected_menu"] = selected_menu
 
@@ -126,7 +127,6 @@ today_str = datetime.now().strftime("%Y-%m-%d")
 if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
   st.header("🏠 Головна панель")
 
-  # Перевірка критичних залишків на складі для сповіщень
   low_stock_df = run_query(
       "SELECT item_name, meters_left, min_limit, unit FROM inventory"
   )
@@ -202,9 +202,10 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
     services_text = "Не вказано"
     if not srv_ids.empty:
       all_s = run_query("SELECT * FROM services")
-      matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
-      if not matched_services.empty:
-        services_text = ", ".join(matched_services["service_name"].tolist())
+      if not all_s.empty:
+        matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
+        if not matched_services.empty:
+          services_text = ", ".join(matched_services["service_name"].tolist())
 
     st.success(
         f"📅 **Дата/Час:** {row['date']} о {row['time']}\n\n🚗 **Автомобіль:"
@@ -225,7 +226,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
   tab1, tab2 = st.tabs(["Список записів", "➕ Записати клієнта"])
 
   with tab1:
-    # Виключаємо скасовані записи зі списку
     apps = run_query(
         "SELECT * FROM appointments WHERE status != 'Виконано' AND status !="
         " 'Скасований' AND status != 'Скасовано' ORDER BY date DESC"
@@ -246,9 +246,12 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
         services_text = "Не вказано"
         if not srv_ids.empty:
           all_s = run_query("SELECT * FROM services")
-          matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
-          if not matched_services.empty:
-            services_text = ", ".join(matched_services["service_name"].tolist())
+          if not all_s.empty:
+            matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
+            if not matched_services.empty:
+              services_text = ", ".join(
+                  matched_services["service_name"].tolist()
+              )
 
         with st.expander(
             f"{status_color} {row['date']} {row['time']} | {row['client_name']}"
@@ -499,6 +502,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
           conn.commit()
           conn.close()
           st.success(f"✅ Записано! Дата запису: {date} о {time}")
+          st.rerun()
         else:
           st.error("Введіть ім'я клієнта та марку автомобіля.")
 
@@ -991,7 +995,6 @@ elif st.session_state["selected_menu"] == "📊 Звіти та Аналітик
       st.markdown("---")
       st.subheader("Детальна таблиця виконаних робіт")
 
-      # Формуємо список послуг для кожного рядка у звіті
       services_list_col = []
       all_services_df = run_query("SELECT * FROM services")
       for _, f_row in filtered_rep.iterrows():
