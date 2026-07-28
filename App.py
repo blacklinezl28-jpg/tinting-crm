@@ -519,7 +519,8 @@ elif menu == "🛠️ Послуги":
         )
         st.success("Послугу додано!")
         st.rerun()
-      elif menu == "📅 Записи":
+ даних для звітів.")
+elif menu == "📅 Записи":
   st.header("📅 Журнал записів")
   tab1, tab2, tab3 = st.tabs(["Всі записи", "Новий запис", "Керування записом"])
 
@@ -653,7 +654,6 @@ elif menu == "🛠️ Послуги":
           )
           app_id = cursor.lastrowid
 
-          # Автоматичне списування плівки зі складу при створенні запису
           if film_id and meters_used > 0:
             cursor.execute(
                 "UPDATE inventory SET meters_left = meters_left - ? WHERE id = ?",
@@ -752,5 +752,3 @@ elif menu == "📊 Звіти":
     st.dataframe(app_rep, use_container_width=True)
   else:
     st.info("Недостатньо даних для звітів.")
-
-    
