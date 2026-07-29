@@ -75,7 +75,6 @@ def init_db():
       " unit TEXT, meters_left_after REAL)"
   )
 
-  # Перевірка наявності колонок
   cursor.execute("PRAGMA table_info(appointments);")
   app_cols = [col[1] for col in cursor.fetchall()]
   if "created_at" not in app_cols:
@@ -96,7 +95,6 @@ init_db()
 
 
 def trigger_auto_backup():
-  """Оновлює час останньої модифікації бази та створює файл бекапу"""
   st.session_state["last_db_update"] = datetime.now().strftime(
       "%Y-%m-%d %H:%M:%S"
   )
@@ -128,7 +126,6 @@ if "selected_menu" not in st.session_state:
   st.session_state["selected_menu"] = "🏠 Головна (Огляд)"
 
 st.sidebar.title("🚗 Меню CRM")
-
 st.sidebar.markdown("---")
 st.sidebar.subheader("💾 Бекап та статус даних")
 st.sidebar.info(
@@ -164,6 +161,21 @@ selected_menu = st.sidebar.radio(
 st.session_state["selected_menu"] = selected_menu
 
 today_str = datetime.now().strftime("%Y-%m-%d")
+
+# Допоміжна функція для отримання послуг
+def get_services_str(app_id):
+  srv_ids = run_query(
+      "SELECT service_id FROM appointment_services WHERE appointment_id = ?",
+      (app_id,),
+  )
+  if not srv_ids.empty:
+    all_s = run_query("SELECT * FROM services")
+    if not all_s.empty:
+      matched = all_s[all_s["id"].isin(srv_ids["service_id"])]
+      if not matched.empty:
+        return ", ".join(matched["service_name"].tolist())
+  return "Не вказано"
+
 
 # ГОЛОВНА СТОРІНКА
 if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
@@ -288,21 +300,20 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
         ):
           st.write(f"**Телефон:** {row['client_phone']}")
           st.write(
-              f"**Створено автоматично:**"
+              f"**Створено:**"
               f" {row['created_at'] if pd.notna(row['created_at']) else 'Не вказано'}"
           )
           st.write(f"**Дата виконання робіт:** {row['date']} о {row['time']}")
           st.write(f"**Статус:** {row['status']}")
           st.write(f"**Замовлені послуги:** {services_text}")
 
-          # Перегляд збережених фото
           photos_df = run_query(
               "SELECT id, photo_type, photo_blob FROM appointment_photos WHERE"
               " appointment_id = ?",
               (row["id"],),
           )
           if not photos_df.empty:
-            st.markdown("#### 📸 Завантажені фото:")
+            st.markdown("#### 📸 Збережені фотографії:")
             b_photos = photos_df[photos_df["photo_type"] == "before"]
             a_photos = photos_df[photos_df["photo_type"] == "after"]
 
@@ -379,7 +390,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             st.markdown(
                 "#### 🎞️🧴 Використані матеріали (Плівки та розхідники)"
             )
-
             mat_rows_data = []
             for i in range(st.session_state[f"mat_count_{row['id']}"]):
               c1, c2 = st.columns([3, 1])
@@ -413,6 +423,21 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 value=str(row["comment"]) if pd.notna(row["comment"]) else "",
             )
 
+            st.markdown("---")
+            st.markdown("#### 📸 Фотографії (До / Після)")
+            ph_before_list = st.file_uploader(
+                "Фото ДО виконання робіт (можна кілька)",
+                type=["png", "jpg", "jpeg"],
+                accept_multiple_files=True,
+                key=f"ph_b_{row['id']}",
+            )
+            ph_after_list = st.file_uploader(
+                "Фото ПІСЛЯ виконання робіт (можна кілька)",
+                type=["png", "jpg", "jpeg"],
+                accept_multiple_files=True,
+                key=f"ph_a_{row['id']}",
+            )
+
             submitted = st.form_submit_button("Зберегти зміни / Фініш")
             if submitted:
               mat_cost = 0.0
@@ -428,7 +453,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                   "DELETE FROM appointment_inventory WHERE appointment_id = ?",
                   (row["id"],),
               )
-
               car_info_str = (
                   f"{row['car_brand']} {row['car_model']} ({row['car_number']})"
               )
@@ -487,33 +511,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                       row["id"],
                   ),
               )
-              conn.commit()
-              conn.close()
-              trigger_auto_backup()
-              st.success("Запис успішно оновлено!")
-              st.rerun()
-
-          st.markdown("---")
-          st.markdown("#### 📸 Завантаження кількох фото (До / Після)")
-          with st.form(f"photo_form_{row['id']}"):
-            ph_before_list = st.file_uploader(
-                "Фото ДО виконання робіт (можна вибрати кілька)",
-                type=["png", "jpg", "jpeg"],
-                accept_multiple_files=True,
-                key=f"ph_b_{row['id']}",
-            )
-            ph_after_list = st.file_uploader(
-                "Фото ПІСЛЯ виконання робіт (можна вибрати кілька)",
-                type=["png", "jpg", "jpeg"],
-                accept_multiple_files=True,
-                key=f"ph_a_{row['id']}",
-            )
-            upload_photos_btn = st.form_submit_button("Зберегти фото в базу")
-
-            if upload_photos_btn:
-              conn = sqlite3.connect(DB_NAME)
-              cursor = conn.cursor()
-              cursor.execute("PRAGMA foreign_keys = ON;")
 
               if ph_before_list:
                 for file in ph_before_list:
@@ -529,10 +526,11 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                                      VALUES (?, 'after', ?)""",
                       (row["id"], file.getvalue()),
                   )
+
               conn.commit()
               conn.close()
               trigger_auto_backup()
-              st.success("Фото успішно збережено в базу даних!")
+              st.success("✅ Зміни успішно збережено!")
               st.rerun()
     else:
       st.info("Поки немає активних записів.")
@@ -607,17 +605,13 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
           conn.close()
           trigger_auto_backup()
 
-          st.session_state["success_msg"] = (
+          st.success(
               f"✅ Успішно записано! Клієнт: {c_name}, дата виконання:"
               f" {work_date} о {time}"
           )
           st.rerun()
         else:
           st.error("Введіть ім'я клієнта та марку автомобіля.")
-
-    if "success_msg" in st.session_state:
-      st.success(st.session_state["success_msg"])
-      del st.session_state["success_msg"]
 
 # 2. СКЛАД
 elif st.session_state["selected_menu"] == "📦 Склад":
@@ -727,7 +721,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
                   ),
                   fetch=False,
               )
-              st.success("Оновлено!")
+              st.success("✅ Зміни успішно збережено!")
               st.rerun()
           with col2:
             if st.button(
@@ -738,7 +732,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
                   (row["id"],),
                   fetch=False,
               )
-              st.warning("Видалено!")
+              st.warning("Позицію видалено!")
               st.rerun()
     else:
       st.info("Склад порожній.")
@@ -778,7 +772,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
               ),
               fetch=False,
           )
-          st.success("Додано!")
+          st.success("✅ Матеріал успішно додано на склад!")
           st.rerun()
 
 # 3. ПОСЛУГИ
@@ -808,7 +802,7 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
                   (new_name, new_price, row["id"]),
                   fetch=False,
               )
-              st.success("Оновлено!")
+              st.success("✅ Послугу оновлено!")
               st.rerun()
           with col2:
             if st.button("Видалити", key=f"del_s_{row['id']}", type="primary"):
@@ -817,7 +811,7 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
                   (row["id"],),
                   fetch=False,
               )
-              st.warning("Видалено!")
+              st.warning("Послугу видалено!")
               st.rerun()
     else:
       st.info("Список послуг порожній.")
@@ -833,14 +827,13 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
               (s_name, s_price),
               fetch=False,
           )
-          st.success("Додано!")
+          st.success("✅ Послугу успішно додано!")
           st.rerun()
 
-# 4. БАЗА КЛІЄНТІВ, БОРГИ ТА ЗВІТИ (Об'єднаний розділ)
+# 4. БАЗА КЛІЄНТІВ, БОРГИ ТА ЗВІТИ (ОБ'ЄДНАНИЙ РОЗДІЛ)
 elif st.session_state["selected_menu"] == "👥 База клієнтів, Борги та Звіти":
-  st.header("👥 База клієнтів, Борги та Фінансова Аналітика")
+  st.header("👥 База клієнтів, Борги та Єдиний звіт")
 
-  # Сповіщення про борги
   debts_df = run_query(
       "SELECT id, client_name, client_phone, car_brand, car_model, car_number,"
       " final_price, date FROM appointments WHERE payment_type = 'Борг' AND"
@@ -857,24 +850,10 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
     st.markdown("---")
 
   tab_search, tab_analytics, tab_edit_all = st.tabs([
-      "🔍 Пошук та історія клієнтів (з послугами)",
-      "📊 Звіти та Аналітика",
+      "🔍 Пошук по клієнтах",
+      "📊 Єдина таблиця звітів та доходів",
       "✏️ Редагувати / Видалити записи",
   ])
-
-  # Допоміжна функція для отримання послуг по конкретному запису
-  def get_services_str(app_id):
-    srv_ids = run_query(
-        "SELECT service_id FROM appointment_services WHERE appointment_id = ?",
-        (app_id,),
-    )
-    if not srv_ids.empty:
-      all_s = run_query("SELECT * FROM services")
-      if not all_s.empty:
-        matched = all_s[all_s["id"].isin(srv_ids["service_id"])]
-        if not matched.empty:
-          return ", ".join(matched["service_name"].tolist())
-    return "Не вказано"
 
   with tab_search:
     search_query = st.text_input(
@@ -925,7 +904,6 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
             st.write(f"**Фінальна ціна:** {c_row['final_price']} грн")
             st.write(f"**Коментар:** {c_row['comment']}")
 
-            # Відображення фото клієнта в базі
             p_df = run_query(
                 "SELECT photo_type, photo_blob FROM appointment_photos WHERE"
                 " appointment_id = ?",
@@ -940,7 +918,6 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                     width=250,
                 )
       else:
-        # Показуємо таблицю з послугами для всіх
         rows_with_services = []
         for _, c_row in client_search_df.iterrows():
           srvs = get_services_str(c_row["id"])
@@ -996,7 +973,9 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
         col4.metric("Чистий прибуток", f"{total_net:,.2f} грн")
 
         st.markdown("---")
-        st.subheader("Детальна таблиця виконаних робіт")
+        st.subheader(
+            "📋 Єдина зведена таблиця клієнтів, послуг та фінансів"
+        )
 
         formatted_rows = []
         for _, f_row in filtered_rep.iterrows():
@@ -1123,7 +1102,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                   ),
                   fetch=False,
               )
-              st.success("Запис успішно оновлено!")
+              st.success("✅ Запис успішно оновлено!")
               st.rerun()
 
             if del_btn:
@@ -1132,7 +1111,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                   (a_row["id"],),
                   fetch=False,
               )
-              st.warning("Запис видалено!")
+              st.warning("⚠️ Запис видалено!")
               st.rerun()
     else:
       st.info("Архів записів порожній.")
