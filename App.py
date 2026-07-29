@@ -212,7 +212,6 @@ def format_time_str(t_raw):
     return ""
   try:
     if isinstance(t_raw, str):
-      # Спробуємо розпарсити час у форматі HH:MM або HH:MM:SS
       parts = t_raw.split(":")
       if len(parts) >= 2:
         return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
@@ -289,7 +288,6 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       else 0
   )
 
-  # Більш компактне розташування метрик у кілька колонок
   m_col1, m_col2, m_col3 = st.columns(3)
   with m_col1:
     st.metric("💰 Каса за місяць", f"{int(earned_month):,} грн".replace(",", " "))
@@ -1089,7 +1087,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
           st.markdown(f"**Телефон:** {c_phone}")
           st.markdown(f"**Загальна сума витрат клієнта:** **{int(total_spent):,} грн**".replace(",", " "))
           st.markdown("---")
-          st.markdown(f"#### 🚗 Автомобілі та історія обслуговування ({len(client_apps)} записів):")
+          st.markdown(f"#### 🚗 Автомобілі та детальна історія обслуговування ({len(client_apps)} записів):")
 
           for _, a_item in client_apps.iterrows():
             srvs_text = get_services_str(a_item["id"])
@@ -1101,14 +1099,44 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               st_icon = "🔴"
             f_time_item = format_time_str(a_item['time'])
 
-            st.markdown(
-                f"- {st_icon} **Дата:** {a_item['date']} о {f_time_item} | "
-                f"**Авто:** {a_item['car_brand']} {a_item['car_model']} ({a_item['car_number']}) | "
-                f"**Послуги:** {srvs_text} | **Сума:** {int(a_item['final_price'])} грн "
-                f"[{a_item['status']}, Оплата: {a_item['payment_type']}]"
-            )
-            if pd.notna(a_item["comment"]) and a_item["comment"].strip():
-              st.markdown(f"  *Коментар:* {a_item['comment']}")
+            # Повноцінний розгорнутий блок для кожного авто/запису як в аналітиці
+            with st.expander(
+                f"{st_icon} Дата: {a_item['date']} о {f_time_item} | Авто: {a_item['car_brand']} {a_item['car_model']} ({a_item['car_number']}) | Послуги: {srvs_text} | Сума: {int(a_item['final_price'])} грн [{a_item['status']}]"
+            ):
+              ac_1, ac_2 = st.columns(2)
+              with ac_1:
+                st.write(f"**📅 Дата створення запису:** {a_item['created_at']}")
+                st.write(f"**⏰ Дата та час виконання:** {a_item['date']} о {f_time_item}")
+                st.write(f"**👤 Клієнт:** {a_item['client_name']}")
+                st.write(f"**📞 Телефон:** {a_item['client_phone']}")
+                st.write(f"**🚗 Автомобіль:** {a_item['car_brand']} {a_item['car_model']} ({a_item['car_number']})")
+              with ac_2:
+                st.write(f"**🛠️ Послуги:** {srvs_text}")
+                st.write(f"**📌 Статус:** {a_item['status']}")
+                st.write(f"**💳 Тип оплати:** {a_item['payment_type']}")
+                st.write(f"**💰 Дохід:** {int(a_item['final_price'])} грн | **Прибуток:** {int(a_item['net_profit'])} грн")
+                st.write(f"**💬 Коментар:** {a_item['comment'] if pd.notna(a_item['comment']) else 'Немає'}")
+
+              p_df = run_query(
+                  "SELECT photo_type, photo_blob FROM appointment_photos WHERE appointment_id = ?",
+                  (a_item["id"],),
+              )
+              if not p_df.empty:
+                st.markdown("#### 📸 Завантажені фото (До / Після):")
+                b_ph = p_df[p_df["photo_type"] == "before"]
+                a_ph = p_df[p_df["photo_type"] == "after"]
+                if not b_ph.empty:
+                  st.write("**Фото ДО:**")
+                  cols = st.columns(3)
+                  for i, (_, pr) in enumerate(b_ph.iterrows()):
+                    with cols[i % 3]:
+                      st.image(pr["photo_blob"], use_column_width=True)
+                if not a_ph.empty:
+                  st.write("**Фото ПІСЛЯ:**")
+                  cols = st.columns(3)
+                  for i, (_, pr) in enumerate(a_ph.iterrows()):
+                    with cols[i % 3]:
+                      st.image(pr["photo_blob"], use_column_width=True)
     else:
       st.info("Клієнтів не знайдено.")
 
