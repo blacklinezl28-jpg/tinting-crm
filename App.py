@@ -60,7 +60,8 @@ def run_query(query, params=(), fetch=True):
         st.error(f"Помилка бази даних: {e}")
         return pd.DataFrame()
 
-SYSTEM_PASSWORD = st.secrets.get("SYSTEM_PASSWORD", "blzl")
+SYSTEM_PASSWORD = "blzl"
+
 
 def check_password():
   if "authenticated" not in st.session_state:
