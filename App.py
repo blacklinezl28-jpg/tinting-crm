@@ -1,3 +1,4 @@
+
 from datetime import datetime
 import os
 import sqlite3
@@ -53,8 +54,12 @@ def init_db():
       " AUTOINCREMENT, client_name TEXT, client_phone TEXT, car_brand TEXT,"
       " car_model TEXT, car_number TEXT, created_at TEXT, date TEXT, time"
       " TEXT, status TEXT, final_price REAL, payment_type TEXT, material_cost"
-      " REAL, net_profit REAL, comment TEXT, photo_before TEXT, photo_after"
-      " TEXT)"
+      " REAL, net_profit REAL, comment TEXT)"
+  )
+  cursor.execute(
+      "CREATE TABLE IF NOT EXISTS appointment_photos (id INTEGER PRIMARY KEY"
+      " AUTOINCREMENT, appointment_id INTEGER, photo_type TEXT, photo_blob"
+      " BLOB)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointment_services (appointment_id"
@@ -71,19 +76,12 @@ def init_db():
       " unit TEXT, meters_left_after REAL)"
   )
 
+  # Перевірка наявності колонок
   cursor.execute("PRAGMA table_info(appointments);")
   app_cols = [col[1] for col in cursor.fetchall()]
   if "created_at" not in app_cols:
     cursor.execute(
         "ALTER TABLE appointments ADD COLUMN created_at TEXT DEFAULT '';"
-    )
-  if "photo_before" not in app_cols:
-    cursor.execute(
-        "ALTER TABLE appointments ADD COLUMN photo_before TEXT DEFAULT '';"
-    )
-  if "photo_after" not in app_cols:
-    cursor.execute(
-        "ALTER TABLE appointments ADD COLUMN photo_after TEXT DEFAULT '';"
     )
 
   cursor.execute("PRAGMA table_info(inventory);")
@@ -96,6 +94,19 @@ def init_db():
 
 
 init_db()
+
+
+def trigger_auto_backup():
+  """Оновлює час останньої модифікації бази та створює файл бекапу"""
+  st.session_state["last_db_update"] = datetime.now().strftime(
+      "%Y-%m-%d %H:%M:%S"
+  )
+
+
+if "last_db_update" not in st.session_state:
+  st.session_state["last_db_update"] = datetime.now().strftime(
+      "%Y-%m-%d %H:%M:%S"
+  )
 
 
 def run_query(query, params=(), fetch=True):
@@ -111,6 +122,7 @@ def run_query(query, params=(), fetch=True):
   else:
     conn.commit()
     conn.close()
+    trigger_auto_backup()
 
 
 if "selected_menu" not in st.session_state:
@@ -119,7 +131,11 @@ if "selected_menu" not in st.session_state:
 st.sidebar.title("🚗 Меню CRM")
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("💾 Безпека даних")
+st.sidebar.subheader("💾 Бекап та статус даних")
+st.sidebar.info(
+    f"🕒 Останнє збереження даних:\n**{st.session_state['last_db_update']}**"
+)
+
 if os.path.exists(DB_NAME):
   with open(DB_NAME, "rb") as f:
     st.sidebar.download_button(
@@ -127,7 +143,7 @@ if os.path.exists(DB_NAME):
         data=f,
         file_name="tinting_crm_backup.db",
         mime="application/octet-stream",
-        help="Збережіть цей файл на комп'ютер, щоб гарантовано не втратити дані.",
+        help="Збережіть цей файл на комп'ютер.",
     )
 
 menu_options = [
@@ -135,8 +151,7 @@ menu_options = [
     "📅 Записати клієнта / Записи",
     "📦 Склад",
     "🛠️ Послуги",
-    "👥 База клієнтів та Борги",
-    "📊 Звіти та Аналітика",
+    "👥 База клієнтів, Борги та Звіти",
 ]
 
 current_index = (
@@ -214,38 +229,6 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
     st.metric("📈 Прибуток за місяць", f"{profit_month:,.2f} грн")
 
   st.markdown("---")
-
-  st.subheader("📅 Візуальний міні-календар записів")
-  all_active_apps = run_query(
-      "SELECT date, time, client_name, car_brand, car_model, status FROM"
-      " appointments WHERE status != 'Скасований' AND status != 'Скасовано'"
-  )
-  if not all_active_apps.empty:
-    selected_date_cal = st.date_input(
-        "Виберіть дату для перевірки зайнятості", value=datetime.now()
-    )
-    selected_date_str = str(selected_date_cal)
-
-    day_appointments = all_active_apps[
-        all_active_apps["date"] == selected_date_str
-    ]
-    if not day_appointments.empty:
-      st.info(
-          f"🚗 Записи на {selected_date_str} (Знайдено:"
-          f" {len(day_appointments)}):"
-      )
-      for _, d_row in day_appointments.iterrows():
-        st.markdown(
-            f"- ⏰ **{d_row['time']}** | Клієнт: **{d_row['client_name']}** |"
-            f" Авто: **{d_row['car_brand']} {d_row['car_model']}** | Статус:"
-            f" *{d_row['status']}*"
-        )
-    else:
-      st.success(f"✅ На {selected_date_str} немає запланованих записів (вільно)")
-  else:
-    st.info("Поки немає жодних записів у базі.")
-
-  st.markdown("---")
   st.subheader("⏰ Найближчий запис")
   next_app = run_query(
       "SELECT * FROM appointments WHERE status = 'Заплановано' ORDER BY date"
@@ -259,7 +242,6 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
         f" ({row['car_number']})\n\n👤 **Клієнт:** {row['client_name']}"
         f" ({row['client_phone']})"
     )
-
     if st.button("👉 Редагувати запис / Змінити статус"):
       st.session_state["selected_menu"] = "📅 Записати клієнта / Записи"
       st.rerun()
@@ -314,18 +296,30 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
           st.write(f"**Статус:** {row['status']}")
           st.write(f"**Замовлені послуги:** {services_text}")
 
-          if pd.notna(row["photo_before"]) and row["photo_before"]:
-            st.image(
-                row["photo_before"],
-                caption="📸 Фото ДО (збережено)",
-                width=300,
-            )
-          if pd.notna(row["photo_after"]) and row["photo_after"]:
-            st.image(
-                row["photo_after"],
-                caption="📸 Фото ПІСЛЯ (збережено)",
-                width=300,
-            )
+          # Перегляд збережених фото
+          photos_df = run_query(
+              "SELECT id, photo_type, photo_blob FROM appointment_photos WHERE"
+              " appointment_id = ?",
+              (row["id"],),
+          )
+          if not photos_df.empty:
+            st.markdown("#### 📸 Завантажені фото:")
+            b_photos = photos_df[photos_df["photo_type"] == "before"]
+            a_photos = photos_df[photos_df["photo_type"] == "after"]
+
+            if not b_photos.empty:
+              st.write("**Фото ДО:**")
+              cols = st.columns(3)
+              for i, (_, p_row) in enumerate(b_photos.iterrows()):
+                with cols[i % 3]:
+                  st.image(p_row["photo_blob"], use_column_width=True)
+
+            if not a_photos.empty:
+              st.write("**Фото ПІСЛЯ:**")
+              cols = st.columns(3)
+              for i, (_, p_row) in enumerate(a_photos.iterrows():
+                with cols[i % 3]:
+                  st.image(p_row["photo_blob"], use_column_width=True)
 
           st.markdown("---")
           with st.form(f"update_app_form_{row['id']}"):
@@ -354,11 +348,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 recommended_price += s_row["default_price"]
             else:
               st.write("Послуги не вибрані.")
-
-            st.info(
-                f"💡 Рекомендована сума за послуги: **{recommended_price:,.2f}"
-                " грн**"
-            )
 
             final_price = st.number_input(
                 "Фінальна ціна за послуги (грн)",
@@ -430,6 +419,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               mat_cost = 0.0
               conn = sqlite3.connect(DB_NAME)
               cursor = conn.cursor()
+              cursor.execute("PRAGMA foreign_keys = ON;")
 
               is_now_done = (
                   new_status == "Виконано" and row["status"] != "Виконано"
@@ -500,20 +490,23 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               )
               conn.commit()
               conn.close()
+              trigger_auto_backup()
               st.success("Запис успішно оновлено!")
               st.rerun()
 
           st.markdown("---")
-          st.markdown("#### 📸 Завантаження фото (До / Після)")
+          st.markdown("#### 📸 Завантаження кількох фото (До / Після)")
           with st.form(f"photo_form_{row['id']}"):
-            ph_before = st.file_uploader(
-                "Фото ДО виконання робіт",
+            ph_before_list = st.file_uploader(
+                "Фото ДО виконання робіт (можна вибрати кілька)",
                 type=["png", "jpg", "jpeg"],
+                accept_multiple_files=True,
                 key=f"ph_b_{row['id']}",
             )
-            ph_after = st.file_uploader(
-                "Фото ПІСЛЯ виконання робіт",
+            ph_after_list = st.file_uploader(
+                "Фото ПІСЛЯ виконання робіт (можна вибрати кілька)",
                 type=["png", "jpg", "jpeg"],
+                accept_multiple_files=True,
                 key=f"ph_a_{row['id']}",
             )
             upload_photos_btn = st.form_submit_button("Зберегти фото в базу")
@@ -521,20 +514,25 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             if upload_photos_btn:
               conn = sqlite3.connect(DB_NAME)
               cursor = conn.cursor()
-              if ph_before:
-                b_bytes = ph_before.getvalue()
-                cursor.execute(
-                    "UPDATE appointments SET photo_before = ? WHERE id = ?",
-                    (b_bytes, row["id"]),
-                )
-              if ph_after:
-                a_bytes = ph_after.getvalue()
-                cursor.execute(
-                    "UPDATE appointments SET photo_after = ? WHERE id = ?",
-                    (a_bytes, row["id"]),
-                )
+              cursor.execute("PRAGMA foreign_keys = ON;")
+
+              if ph_before_list:
+                for file in ph_before_list:
+                  cursor.execute(
+                      """INSERT INTO appointment_photos (appointment_id, photo_type, photo_blob) 
+                                     VALUES (?, 'before', ?)""",
+                      (row["id"], file.getvalue()),
+                  )
+              if ph_after_list:
+                for file in ph_after_list:
+                  cursor.execute(
+                      """INSERT INTO appointment_photos (appointment_id, photo_type, photo_blob) 
+                                     VALUES (?, 'after', ?)""",
+                      (row["id"], file.getvalue()),
+                  )
               conn.commit()
               conn.close()
+              trigger_auto_backup()
               st.success("Фото успішно збережено в базу даних!")
               st.rerun()
     else:
@@ -578,7 +576,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
           cursor = conn.cursor()
           cursor.execute("PRAGMA foreign_keys = ON;")
 
-          # Автоматична фіксація дати та часу створення запису
           created_at_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
           cursor.execute(
@@ -609,6 +606,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
           conn.commit()
           conn.close()
+          trigger_auto_backup()
 
           st.session_state["success_msg"] = (
               f"✅ Успішно записано! Клієнт: {c_name}, дата виконання:"
@@ -839,10 +837,11 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
           st.success("Додано!")
           st.rerun()
 
-# 4. БАЗА КЛІЄНТІВ ТА БОРГИ
-elif st.session_state["selected_menu"] == "👥 База клієнтів та Борги":
-  st.header("👥 База клієнтів, пошук, борги та редагування записів")
+# 4. БАЗА КЛІЄНТІВ, БОРГИ ТА ЗВІТИ (Об'єднаний розділ)
+elif st.session_state["selected_menu"] == "👥 База клієнтів, Борги та Звіти":
+  st.header("👥 База клієнтів, Борги та Фінансова Аналітика")
 
+  # Сповіщення про борги
   debts_df = run_query(
       "SELECT id, client_name, client_phone, car_brand, car_model, car_number,"
       " final_price, date FROM appointments WHERE payment_type = 'Борг' AND"
@@ -858,9 +857,25 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
       )
     st.markdown("---")
 
-  tab_search, tab_edit_all = st.tabs(
-      ["🔍 Пошук та історія клієнта", "✏️ Редагувати / Видалити записи (Борги)"]
-  )
+  tab_search, tab_analytics, tab_edit_all = st.tabs([
+      "🔍 Пошук та історія клієнтів (з послугами)",
+      "📊 Звіти та Аналітика",
+      "✏️ Редагувати / Видалити записи",
+  ])
+
+  # Допоміжна функція для отримання послуг по конкретному запису
+  def get_services_str(app_id):
+    srv_ids = run_query(
+        "SELECT service_id FROM appointment_services WHERE appointment_id = ?",
+        (app_id,),
+    )
+    if not srv_ids.empty:
+      all_s = run_query("SELECT * FROM services")
+      if not all_s.empty:
+        matched = all_s[all_s["id"].isin(srv_ids["service_id"])]
+        if not matched.empty:
+          return ", ".join(matched["service_name"].tolist())
+    return "Не вказано"
 
   with tab_search:
     search_query = st.text_input(
@@ -900,60 +915,114 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
             f" сплачено:** {total_spent:,.2f} грн"
         )
 
-        display_df = filtered_client_df[[
-            "created_at",
-            "date",
-            "car_brand",
-            "car_model",
-            "car_number",
-            "status",
-            "payment_type",
-            "final_price",
-            "comment",
-        ]]
-        display_df.columns = [
-            "Дата створення",
-            "Дата виконання",
-            "Марка",
-            "Модель",
-            "Держ. номер",
-            "Статус",
-            "Оплата",
-            "Ціна (грн)",
-            "Коментар",
-        ]
-        st.dataframe(display_df, use_container_width=True)
+        for _, c_row in filtered_client_df.iterrows():
+          srvs = get_services_str(c_row["id"])
+          with st.expander(
+              f"📅 {c_row['date']} | Авто: {c_row['car_brand']}"
+              f" {c_row['car_model']} ({c_row['car_number']}) | Статус:"
+              f" {c_row['status']} | Оплата: {c_row['payment_type']}"
+          ):
+            st.write(f"**Замовлені послуги:** {srvs}")
+            st.write(f"**Фінальна ціна:** {c_row['final_price']} грн")
+            st.write(f"**Коментар:** {c_row['comment']}")
+
+            # Відображення фото клієнта в базі
+            p_df = run_query(
+                "SELECT photo_type, photo_blob FROM appointment_photos WHERE"
+                " appointment_id = ?",
+                (c_row["id"],),
+            )
+            if not p_df.empty:
+              st.markdown("**Фотографії:**")
+              for _, pr in p_df.iterrows():
+                st.image(
+                    pr["photo_blob"],
+                    caption=f"Тип: {pr['photo_type']}",
+                    width=250,
+                )
       else:
-        display_df = client_search_df[[
-            "created_at",
-            "date",
-            "client_name",
-            "client_phone",
-            "car_brand",
-            "car_model",
-            "car_number",
-            "status",
-            "payment_type",
-            "final_price",
-        ]]
-        display_df.columns = [
-            "Дата створення",
-            "Дата виконання",
-            "Клієнт",
-            "Телефон",
-            "Марка",
-            "Модель",
-            "Держ. номер",
-            "Статус",
-            "Оплата",
-            "Ціна (грн)",
-        ]
-        st.dataframe(display_df, use_container_width=True)
+        # Показуємо таблицю з послугами для всіх
+        rows_with_services = []
+        for _, c_row in client_search_df.iterrows():
+          srvs = get_services_str(c_row["id"])
+          rows_with_services.append({
+              "Дата створення": c_row["created_at"],
+              "Дата виконання": c_row["date"],
+              "Клієнт": c_row["client_name"],
+              "Телефон": c_row["client_phone"],
+              "Авто": f"{c_row['car_brand']} {c_row['car_model']} ({c_row['car_number']})",
+              "Послуги": srvs,
+              "Статус": c_row["status"],
+              "Оплата": c_row["payment_type"],
+              "Ціна (грн)": c_row["final_price"],
+          })
+        st.dataframe(pd.DataFrame(rows_with_services), use_container_width=True)
     else:
       st.info("Нічого не знайдено.")
 
+  with tab_analytics:
+    rep_df = run_query(
+        "SELECT * FROM appointments WHERE status = 'Виконано' ORDER BY date"
+        " DESC"
+    )
+
+    if not rep_df.empty:
+      rep_df["date_dt"] = pd.to_datetime(rep_df["date"])
+      rep_df["Рік-Місяць"] = rep_df["date_dt"].dt.strftime("%Y-%m")
+
+      period_options = ["За весь час"] + sorted(
+          rep_df["Рік-Місяць"].unique().tolist(), reverse=True
+      )
+      selected_period = st.selectbox(
+          "Виберіть період для аналітики", period_options
+      )
+
+      if selected_period != "За весь час":
+        filtered_rep = rep_df[rep_df["Рік-Місяць"] == selected_period]
+        st.subheader(f"📊 Звіт за період: {selected_period}")
+      else:
+        filtered_rep = rep_df
+        st.subheader("📊 Звіт за весь час")
+
+      if not filtered_rep.empty:
+        total_earned = filtered_rep["final_price"].sum()
+        total_cost = filtered_rep["material_cost"].sum()
+        total_net = filtered_rep["net_profit"].sum()
+        total_cars = len(filtered_rep)
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Виконано авто", f"{total_cars} шт")
+        col2.metric("Загальний дохід", f"{total_earned:,.2f} грн")
+        col3.metric("Витрати на матеріали", f"{total_cost:,.2f} грн")
+        col4.metric("Чистий прибуток", f"{total_net:,.2f} грн")
+
+        st.markdown("---")
+        st.subheader("Детальна таблиця виконаних робіт")
+
+        formatted_rows = []
+        for _, f_row in filtered_rep.iterrows():
+          srvs = get_services_str(f_row["id"])
+          formatted_rows.append({
+              "Дата створення": f_row["created_at"],
+              "Дата виконання": f_row["date"],
+              "Клієнт": f_row["client_name"],
+              "Телефон": f_row["client_phone"],
+              "Авто": f"{f_row['car_brand']} {f_row['car_model']} ({f_row['car_number']})",
+              "Послуги": srvs,
+              "Оплата": f_row["payment_type"],
+              "Дохід (грн)": f_row["final_price"],
+              "Собівартість мат.": f_row["material_cost"],
+              "Прибуток (грн)": f_row["net_profit"],
+              "Коментар": f_row["comment"],
+          })
+        st.dataframe(pd.DataFrame(formatted_rows), use_container_width=True)
+      else:
+        st.info("За обраний період немає виконаних робіт.")
+    else:
+      st.info("Немає даних для звітів.")
+
   with tab_edit_all:
-    st.subheader("🛠️ Управління та редагування записів")
+    st.subheader("🛠️ Управління та редагування всіх записів")
     all_apps = run_query("SELECT * FROM appointments ORDER BY date DESC")
     if not all_apps.empty:
       for _, a_row in all_apps.iterrows():
@@ -963,10 +1032,11 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
             else "[Не вказано]"
         )
         is_debt_mark = "🔴 БОРГ" if a_row["payment_type"] == "Борг" else "🟢"
+        srvs = get_services_str(a_row["id"])
+
         with st.expander(
             f"{is_debt_mark} Виконання: {a_row['date']} | Клієнт:"
-            f" {a_row['client_name']} | Авто: {a_row['car_brand']}"
-            f" {a_row['car_model']} ({a_row['car_number']}) | Сума:"
+            f" {a_row['client_name']} | Послуги: {srvs} | Сума:"
             f" {a_row['final_price']} грн {p_type_label}"
         ):
           with st.form(f"admin_edit_app_{a_row['id']}"):
@@ -1067,96 +1137,3 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів та �
               st.rerun()
     else:
       st.info("Архів записів порожній.")
-
-# 5. ЗВІТИ ТА АНАЛІТИКА
-elif st.session_state["selected_menu"] == "📊 Звіти та Аналітика":
-  st.header("📊 Фінансова аналітика та звіти")
-
-  rep_df = run_query(
-      "SELECT * FROM appointments WHERE status = 'Виконано' ORDER BY date DESC"
-  )
-
-  if not rep_df.empty:
-    rep_df["date_dt"] = pd.to_datetime(rep_df["date"])
-    rep_df["Рік-Місяць"] = rep_df["date_dt"].dt.strftime("%Y-%m")
-
-    period_options = ["За весь час"] + sorted(
-        rep_df["Рік-Місяць"].unique().tolist(), reverse=True
-    )
-    selected_period = st.selectbox("Виберіть період для аналітики", period_options)
-
-    if selected_period != "За весь час":
-      filtered_rep = rep_df[rep_df["Рік-Місяць"] == selected_period]
-      st.subheader(f"📊 Звіт за період: {selected_period}")
-    else:
-      filtered_rep = rep_df
-      st.subheader("📊 Звіт за весь час")
-
-    if not filtered_rep.empty:
-      total_earned = filtered_rep["final_price"].sum()
-      total_cost = filtered_rep["material_cost"].sum()
-      total_net = filtered_rep["net_profit"].sum()
-      total_cars = len(filtered_rep)
-
-      col1, col2, col3, col4 = st.columns(4)
-      col1.metric("Виконано авто", f"{total_cars} шт")
-      col2.metric("Загальний дохід", f"{total_earned:,.2f} грн")
-      col3.metric("Витрати на матеріали", f"{total_cost:,.2f} грн")
-      col4.metric("Чистий прибуток", f"{total_net:,.2f} грн")
-
-      st.markdown("---")
-      st.subheader("Детальна таблиця виконаних робіт")
-
-      services_list_col = []
-      all_services_df = run_query("SELECT * FROM services")
-      for _, f_row in filtered_rep.iterrows():
-        srv_ids = run_query(
-            "SELECT service_id FROM appointment_services WHERE appointment_id"
-            " = ?",
-            (f_row["id"],),
-        )
-        if not srv_ids.empty and not all_services_df.empty:
-          matched = all_services_df[
-              all_services_df["id"].isin(srv_ids["service_id"])
-          ]
-          services_list_col.append(
-              ", ".join(matched["service_name"].tolist())
-          )
-        else:
-          services_list_col.append("Не вказано")
-
-      formatted_rep = filtered_rep[[
-          "created_at",
-          "date",
-          "client_name",
-          "car_brand",
-          "car_model",
-          "car_number",
-          "payment_type",
-          "final_price",
-          "material_cost",
-          "net_profit",
-          "comment",
-      ]].copy()
-
-      formatted_rep.insert(6, "Послуги", services_list_col)
-
-      formatted_rep.columns = [
-          "Дата створення",
-          "Дата виконання",
-          "Клієнт",
-          "Марка",
-          "Модель",
-          "Держ. номер",
-          "Послуги",
-          "Оплата",
-          "Дохід (грн)",
-          "Собівартість мат.",
-          "Прибуток (грн)",
-          "Коментар",
-      ]
-      st.dataframe(formatted_rep, use_container_width=True)
-    else:
-      st.info("За обраний період немає виконаних робіт.")
-  else:
-    st.info("Немає даних для звітів.")
