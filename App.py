@@ -151,21 +151,8 @@ if "selected_menu" not in st.session_state:
   st.session_state["selected_menu"] = "🏠 Інформаційна панель"
 
 st.sidebar.title("🚗 Меню CRM")
-st.sidebar.markdown("---")
-st.sidebar.subheader("💾 Бекап та статус даних")
-st.sidebar.info(
-    f"🕒 Останнє збереження даних:\n**{st.session_state['last_db_update']}**"
-)
 
-if os.path.exists(DB_NAME):
-  with open(DB_NAME, "rb") as f:
-    st.sidebar.download_button(
-        label="📥 Завантажити резервну копію бази",
-        data=f,
-        file_name="tinting_crm_backup.db",
-        mime="application/octet-stream",
-    )
-
+# 1. СЕРЕДИНА: Вибір розділу спочатку
 menu_options = [
     "🏠 Інформаційна панель",
     "📅 Записати клієнта / Записи",
@@ -183,6 +170,22 @@ selected_menu = st.sidebar.radio(
     "Виберіть розділ", menu_options, index=current_index
 )
 st.session_state["selected_menu"] = selected_menu
+
+# 2. НИЗ: Бекап та статус даних перенесено вниз
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Бекап та статус даних")
+st.sidebar.info(
+    f"🕒 Останнє збереження даних:\n**{st.session_state['last_db_update']}**"
+)
+
+if os.path.exists(DB_NAME):
+  with open(DB_NAME, "rb") as f:
+    st.sidebar.download_button(
+        label="📥 Завантажити резервну копію бази",
+        data=f,
+        file_name="tinting_crm_backup.db",
+        mime="application/octet-stream",
+    )
 
 today_str = get_now_kyiv().strftime("%Y-%m-%d")
 
@@ -223,14 +226,12 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
 
   month_str = get_now_kyiv().strftime("%Y-%m")
   
-  # Звіт за поточний місяць (рахується каса, кількість авто за місяць)
   month_df = run_query(
       "SELECT SUM(final_price) as earned, SUM(net_profit) as profit, COUNT(*) as cars_count FROM"
       " appointments WHERE status = 'Виконано' AND date LIKE ?",
       (f"{month_str}%",),
   )
 
-  # Загальна кількість автомобілів, які записані взагалі в чергу (усі статуси або всі нескасовані, тут беремо всі записи в базі або нескасовані)
   total_queue_df = run_query(
       "SELECT COUNT(*) as total_queue FROM appointments WHERE status != 'Скасовано'"
   )
@@ -256,14 +257,17 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       else 0
   )
 
-  c1, c2, c3, c4 = st.columns(4)
-  with c1:
+  # Оптимізоване розташування у дві колонки зліва направо
+  col_l1, col_r1 = st.columns(2)
+  with col_l1:
     st.metric("💰 Загальна каса за місяць", f"{int(earned_month):,} грн".replace(",", " "))
-  with c2:
+  with col_r1:
     st.metric("📈 Прибуток за місяць", f"{int(profit_month):,} грн".replace(",", " "))
-  with c3:
+
+  col_l2, col_r2 = st.columns(2)
+  with col_l2:
     st.metric("🚗 Авто за місяць (виконано)", f"{int(cars_month_count)} шт")
-  with c4:
+  with col_r2:
     st.metric("📌 Всього в черзі", f"{int(total_queue_count)} шт")
 
   st.markdown("---")
@@ -289,27 +293,21 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
   st.markdown("---")
   st.subheader("📅 Календар зайнятості")
   
-  # Отримуємо всі записи для побудови календаря в стовпчик
   all_appointments_cal = run_query("SELECT date, status, car_brand, car_model, car_number, time FROM appointments ORDER BY date ASC, time ASC")
   
   if not all_appointments_cal.empty:
-    # Групуємо за датами
     unique_dates = all_appointments_cal["date"].unique()
     
     for d_val in unique_dates:
       day_apps = all_appointments_cal[all_appointments_cal["date"] == d_val]
       
-      # Визначаємо загальний статус дня за пріоритетом: якщо є хоч один "Очікує" -> жовтий, якщо всі виконані -> зелений, якщо скасовані -> червоний
       statuses = day_apps["status"].tolist()
       if "Очікує" in statuses:
         badge_color = "🟡"
-        status_text = "Є очікувані записи"
       elif "Виконано" in statuses and "Очікує" not in statuses:
         badge_color = "🟢"
-        status_text = "Виконано"
       else:
         badge_color = "🔴"
-        status_text = "Скасовано"
 
       with st.expander(f"{badge_color} Дата: {d_val} ({len(day_apps)} авто)"):
         for _, app_row in day_apps.iterrows():
@@ -326,9 +324,10 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
   tab1, tab2 = st.tabs(["Список активних записів", "➕ Записати клієнта"])
 
   with tab1:
+    # Упорядковано по даті та часу виконання (найближчі перші)
     apps = run_query(
         "SELECT * FROM appointments WHERE status != 'Виконано' AND status !="
-        " 'Скасовано' ORDER BY id DESC"
+        " 'Скасовано' ORDER BY date ASC, time ASC"
     )
     if not apps.empty:
       for idx, row in apps.iterrows():
@@ -974,17 +973,31 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       total_net = done_rep["net_profit"].sum()
       total_cars = len(done_rep)
 
-      col1, col2, col3, col4 = st.columns(4)
-      col1.metric("Виконано авто", f"{total_cars} шт")
-      col2.metric("Загальний дохід", f"{int(total_earned):,} грн".replace(",", " "))
-      col3.metric("Витрати на матеріали", f"{int(total_cost):,} грн".replace(",", " "))
-      col4.metric("Чистий прибуток", f"{int(total_net):,} грн".replace(",", " "))
+      # Оптимізована сітка метрик за вашим запитом:
+      # Зверху: Виконано авто та Загальний дохід
+      col_m1, col_m2 = st.columns(2)
+      col_m1.metric("Виконано авто", f"{total_cars} шт")
+      col_m2.metric("Загальний дохід", f"{int(total_earned):,} грн".replace(",", " "))
+
+      # Знизу: Витрати на матеріали (зліва) та Чистий прибуток (правіше)
+      col_m3, col_m4 = st.columns(2)
+      col_m3.metric("Витрати на матеріали", f"{int(total_cost):,} грн".replace(",", " "))
+      col_m4.metric("Чистий прибуток", f"{int(total_net):,} грн".replace(",", " "))
 
       st.markdown("---")
       st.subheader("📋 Деталі по записах")
       for _, f_row in filtered_rep.iterrows():
         srvs = get_services_str(f_row["id"])
-        is_debt = "🔴 БОРГ" if f_row["payment_type"] == "Борг" else "🟢"
+        
+        # Кольоровий кружок залежно від статусу
+        if f_row["status"] == "Очікує":
+          status_icon = "🟡"
+        elif f_row["status"] == "Виконано":
+          status_icon = "🟢"
+        else:
+          status_icon = "🔴"
+
+        is_debt = "🔴 БОРГ" if f_row["payment_type"] == "Борг" else status_icon
         with st.expander(
             f"{is_debt} Дата: {f_row['date']} | Клієнт: {f_row['client_name']} ({f_row['client_phone']}) | Авто: {f_row['car_brand']} {f_row['car_model']} ({f_row['car_number']}) | Послуги: {srvs} | Сума: {int(f_row['final_price'])} грн [{f_row['status']}]"
         ):
