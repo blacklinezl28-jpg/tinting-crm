@@ -53,7 +53,8 @@ def init_db():
       " AUTOINCREMENT, client_name TEXT, client_phone TEXT, car_brand TEXT,"
       " car_model TEXT, car_number TEXT, created_at TEXT, date TEXT, time"
       " TEXT, status TEXT, final_price REAL, payment_type TEXT, material_cost"
-      " REAL, net_profit REAL, comment TEXT)"
+      " REAL, net_profit REAL, comment TEXT, photo_before TEXT, photo_after"
+      " TEXT)"
   )
   cursor.execute(
       "CREATE TABLE IF NOT EXISTS appointment_services (appointment_id"
@@ -70,12 +71,19 @@ def init_db():
       " unit TEXT, meters_left_after REAL)"
   )
 
-  # Міграція для таблиці appointments (якщо колонка створена раніше)
   cursor.execute("PRAGMA table_info(appointments);")
   app_cols = [col[1] for col in cursor.fetchall()]
   if "created_at" not in app_cols:
     cursor.execute(
         "ALTER TABLE appointments ADD COLUMN created_at TEXT DEFAULT '';"
+    )
+  if "photo_before" not in app_cols:
+    cursor.execute(
+        "ALTER TABLE appointments ADD COLUMN photo_before TEXT DEFAULT '';"
+    )
+  if "photo_after" not in app_cols:
+    cursor.execute(
+        "ALTER TABLE appointments ADD COLUMN photo_after TEXT DEFAULT '';"
     )
 
   cursor.execute("PRAGMA table_info(inventory);")
@@ -109,6 +117,19 @@ if "selected_menu" not in st.session_state:
   st.session_state["selected_menu"] = "🏠 Головна (Огляд)"
 
 st.sidebar.title("🚗 Меню CRM")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Безпека даних")
+if os.path.exists(DB_NAME):
+  with open(DB_NAME, "rb") as f:
+    st.sidebar.download_button(
+        label="📥 Завантажити резервну копію бази",
+        data=f,
+        file_name="tinting_crm_backup.db",
+        mime="application/octet-stream",
+        help="Збережіть цей файл на комп'ютер, щоб гарантовано не втратити дані.",
+    )
+
 menu_options = [
     "🏠 Головна (Огляд)",
     "📅 Записати клієнта / Записи",
@@ -132,7 +153,7 @@ today_str = datetime.now().strftime("%Y-%m-%d")
 
 # ГОЛОВНА СТОРІНКА
 if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
-  st.header("🏠 Головна панель")
+  st.header("🏠 Головна панель та Календар зайнятості")
 
   low_stock_df = run_query(
       "SELECT item_name, meters_left, min_limit, unit FROM inventory"
@@ -193,6 +214,38 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
     st.metric("📈 Прибуток за місяць", f"{profit_month:,.2f} грн")
 
   st.markdown("---")
+
+  st.subheader("📅 Візуальний міні-календар записів")
+  all_active_apps = run_query(
+      "SELECT date, time, client_name, car_brand, car_model, status FROM"
+      " appointments WHERE status != 'Скасований' AND status != 'Скасовано'"
+  )
+  if not all_active_apps.empty:
+    selected_date_cal = st.date_input(
+        "Виберіть дату для перевірки зайнятості", value=datetime.now()
+    )
+    selected_date_str = str(selected_date_cal)
+
+    day_appointments = all_active_apps[
+        all_active_apps["date"] == selected_date_str
+    ]
+    if not day_appointments.empty:
+      st.info(
+          f"🚗 Записи на {selected_date_str} (Знайдено:"
+          f" {len(day_appointments)}):"
+      )
+      for _, d_row in day_appointments.iterrows():
+        st.markdown(
+            f"- ⏰ **{d_row['time']}** | Клієнт: **{d_row['client_name']}** |"
+            f" Авто: **{d_row['car_brand']} {d_row['car_model']}** | Статус:"
+            f" *{d_row['status']}*"
+        )
+    else:
+      st.success(f"✅ На {selected_date_str} немає запланованих записів (вільно)")
+  else:
+    st.info("Поки немає жодних записів у базі.")
+
+  st.markdown("---")
   st.subheader("⏰ Найближчий запис")
   next_app = run_query(
       "SELECT * FROM appointments WHERE status = 'Заплановано' ORDER BY date"
@@ -200,11 +253,8 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
   )
   if not next_app.empty:
     row = next_app.iloc[0]
-
     st.success(
-        f"📅 **Дата виконання робіт:** {row['date']} о {row['time']}\n\n📝"
-        f" **Дата створення запису:**"
-        f" {row['created_at'] if pd.notna(row['created_at']) and row['created_at'] != '' else 'Не вказано'}\n\n🚗"
+        f"📅 **Дата виконання робіт:** {row['date']} о {row['time']}\n\n🚗"
         f" **Автомобіль:** {row['car_brand']} {row['car_model']}"
         f" ({row['car_number']})\n\n👤 **Клієнт:** {row['client_name']}"
         f" ({row['client_phone']})"
@@ -214,7 +264,7 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
       st.session_state["selected_menu"] = "📅 Записати клієнта / Записи"
       st.rerun()
   else:
-    st.info("Наразі немає запланованих записів.")
+    st.info("Наразі немає найближчих запланованих записів.")
 
 # 1. ЗАПИСАТИ КЛІЄНТА / ЗАПИСИ
 elif st.session_state["selected_menu"] == "📅 Записати клієнта / Записи":
@@ -257,12 +307,25 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
         ):
           st.write(f"**Телефон:** {row['client_phone']}")
           st.write(
-              f"**Дата створення запису:**"
+              f"**Створено автоматично:**"
               f" {row['created_at'] if pd.notna(row['created_at']) else 'Не вказано'}"
           )
           st.write(f"**Дата виконання робіт:** {row['date']} о {row['time']}")
           st.write(f"**Статус:** {row['status']}")
           st.write(f"**Замовлені послуги:** {services_text}")
+
+          if pd.notna(row["photo_before"]) and row["photo_before"]:
+            st.image(
+                row["photo_before"],
+                caption="📸 Фото ДО (збережено)",
+                width=300,
+            )
+          if pd.notna(row["photo_after"]) and row["photo_after"]:
+            st.image(
+                row["photo_after"],
+                caption="📸 Фото ПІСЛЯ (збережено)",
+                width=300,
+            )
 
           st.markdown("---")
           with st.form(f"update_app_form_{row['id']}"):
@@ -439,6 +502,41 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               conn.close()
               st.success("Запис успішно оновлено!")
               st.rerun()
+
+          st.markdown("---")
+          st.markdown("#### 📸 Завантаження фото (До / Після)")
+          with st.form(f"photo_form_{row['id']}"):
+            ph_before = st.file_uploader(
+                "Фото ДО виконання робіт",
+                type=["png", "jpg", "jpeg"],
+                key=f"ph_b_{row['id']}",
+            )
+            ph_after = st.file_uploader(
+                "Фото ПІСЛЯ виконання робіт",
+                type=["png", "jpg", "jpeg"],
+                key=f"ph_a_{row['id']}",
+            )
+            upload_photos_btn = st.form_submit_button("Зберегти фото в базу")
+
+            if upload_photos_btn:
+              conn = sqlite3.connect(DB_NAME)
+              cursor = conn.cursor()
+              if ph_before:
+                b_bytes = ph_before.getvalue()
+                cursor.execute(
+                    "UPDATE appointments SET photo_before = ? WHERE id = ?",
+                    (b_bytes, row["id"]),
+                )
+              if ph_after:
+                a_bytes = ph_after.getvalue()
+                cursor.execute(
+                    "UPDATE appointments SET photo_after = ? WHERE id = ?",
+                    (a_bytes, row["id"]),
+                )
+              conn.commit()
+              conn.close()
+              st.success("Фото успішно збережено в базу даних!")
+              st.rerun()
     else:
       st.info("Поки немає активних записів.")
 
@@ -466,14 +564,11 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
       car_model = st.text_input("Модель (наприклад, Camry)")
       car_number = st.text_input("Держ. номер")
 
-      st.markdown("### 📅 Дати запису")
-      created_date = st.date_input(
-          "Дата створення запису (коли звернувся)", value=datetime.now()
-      )
+      st.markdown("### 📅 Дата та час виконання робіт")
       work_date = st.date_input(
-          "Дата на коли записано робити (виконання робіт)", value=datetime.now()
+          "На коли записати автомобіль (дата виконання)", value=datetime.now()
       )
-      time = st.time_input("Час запису")
+      time = st.time_input("Час візиту")
       comment = st.text_area("Початковий коментар")
 
       submit_app = st.form_submit_button("Записати клієнта")
@@ -482,6 +577,9 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
           conn = sqlite3.connect(DB_NAME)
           cursor = conn.cursor()
           cursor.execute("PRAGMA foreign_keys = ON;")
+
+          # Автоматична фіксація дати та часу створення запису
+          created_at_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
           cursor.execute(
               """INSERT INTO appointments (client_name, client_phone, car_brand, car_model, car_number, 
@@ -493,7 +591,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                   car_brand,
                   car_model,
                   car_number,
-                  str(created_date),
+                  created_at_str,
                   str(work_date),
                   str(time),
                   comment,
