@@ -104,6 +104,11 @@ def init_db():
       " AUTOINCREMENT, date TEXT, item_name TEXT, car_info TEXT, qty_used REAL,"
       " unit TEXT, meters_left_after REAL)"
   )
+  cursor.execute(
+      "CREATE TABLE IF NOT EXISTS appointment_spoiled (id INTEGER PRIMARY"
+      " KEY AUTOINCREMENT, appointment_id INTEGER, inventory_id INTEGER,"
+      " qty_spoiled REAL, cost_uah REAL)"
+  )
 
   cursor.execute("PRAGMA table_info(appointments);")
   app_cols = [col[1] for col in cursor.fetchall()]
@@ -152,7 +157,6 @@ if "selected_menu" not in st.session_state:
 
 st.sidebar.title("🚗 Меню CRM")
 
-# 1. СЕРЕДИНА: Вибір розділу спочатку
 menu_options = [
     "🏠 Інформаційна панель",
     "📅 Записати клієнта / Записи",
@@ -171,7 +175,6 @@ selected_menu = st.sidebar.radio(
 )
 st.session_state["selected_menu"] = selected_menu
 
-# 2. НИЗ: Бекап та статус даних перенесено вниз
 st.sidebar.markdown("---")
 st.sidebar.subheader("💾 Бекап та статус даних")
 st.sidebar.info(
@@ -232,6 +235,20 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       (f"{month_str}%",),
   )
 
+  # Розрахунок браку за місяць для головної сторінки
+  month_spoiled_df = run_query(
+      """SELECT SUM(s.cost_uah) as total_spoiled_cost 
+         FROM appointment_spoiled s 
+         JOIN appointments a ON s.appointment_id = a.id 
+         WHERE a.date LIKE ?""",
+      (f"{month_str}%",)
+  )
+  spoiled_month_cost = (
+      month_spoiled_df["total_spoiled_cost"].iloc[0]
+      if not month_spoiled_df.empty and pd.notna(month_spoiled_df["total_spoiled_cost"].iloc[0])
+      else 0.0
+  )
+
   total_queue_df = run_query(
       "SELECT COUNT(*) as total_queue FROM appointments WHERE status != 'Скасовано'"
   )
@@ -246,29 +263,36 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       if not month_df.empty and pd.notna(month_df["earned"].iloc[0])
       else 0.0
   )
-  profit_month = (
+  raw_profit_month = (
       month_df["profit"].iloc[0]
       if not month_df.empty and pd.notna(month_df["profit"].iloc[0])
       else 0.0
   )
+  # Чистий прибуток враховує мінус вартість браку
+  profit_month = raw_profit_month - spoiled_month_cost
+
   cars_month_count = (
       month_df["cars_count"].iloc[0]
       if not month_df.empty and pd.notna(month_df["cars_count"].iloc[0])
       else 0
   )
 
-  # Оптимізоване розташування у дві колонки зліва направо
+  # Дві колонки для фінансів та показників
   col_l1, col_r1 = st.columns(2)
   with col_l1:
     st.metric("💰 Загальна каса за місяць", f"{int(earned_month):,} грн".replace(",", " "))
   with col_r1:
-    st.metric("📈 Прибуток за місяць", f"{int(profit_month):,} грн".replace(",", " "))
+    st.metric("📈 Прибуток за місяць (з врахуванням браку)", f"{int(profit_month):,} грн".replace(",", " "))
 
   col_l2, col_r2 = st.columns(2)
   with col_l2:
     st.metric("🚗 Авто за місяць (виконано)", f"{int(cars_month_count)} шт")
   with col_r2:
     st.metric("📌 Всього в черзі", f"{int(total_queue_count)} шт")
+
+  col_l3, col_r3 = st.columns(2)
+  with col_l3:
+    st.metric("⚠️ Брак за місяць (в грошах)", f"{int(spoiled_month_cost):,} грн".replace(",", " "))
 
   st.markdown("---")
   st.subheader("⏰ Найближчий запис")
@@ -324,7 +348,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
   tab1, tab2 = st.tabs(["Список активних записів", "➕ Записати клієнта"])
 
   with tab1:
-    # Упорядковано по даті та часу виконання (найближчі перші)
     apps = run_query(
         "SELECT * FROM appointments WHERE status != 'Виконано' AND status !="
         " 'Скасовано' ORDER BY date ASC, time ASC"
@@ -425,7 +448,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             new_work_date = st.date_input("Дата виконання робіт", value=cur_date_obj, key=f"upd_date_{row['id']}")
             new_work_time = st.time_input("Час виконання робіт (з 8:00 до 21:00)", value=cur_time_obj, key=f"upd_time_{row['id']}")
 
-            st.markdown("#### 🛠️ Керування послугами (Додати / Скасувати):")
+            st.markdown("#### 🛠️ Керування послугами:")
             updated_selected_services = []
             if not all_s.empty:
               for _, s_row in all_s.iterrows():
@@ -504,6 +527,41 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               st.session_state[f"mat_count_{row['id']}"] += 1
               st.rerun()
 
+            # --- БЛОК БРАКУ МАТЕРІАЛІВ ---
+            st.markdown("---")
+            st.markdown("#### ❌ Облік браку матеріалів")
+            if f"spoiled_count_{row['id']}" not in st.session_state:
+              st.session_state[f"spoiled_count_{row['id']}"] = 1
+
+            spoiled_rows_data = []
+            for i in range(st.session_state[f"spoiled_count_{row['id']}"]):
+              sc1, sc2 = st.columns([3, 1])
+              with sc1:
+                spoiled_options = {"Не вибрано": None}
+                for _, i_row in inv_data.iterrows():
+                  spoiled_options[
+                      f"[Брак] {i_row['item_name']} ({i_row['category']}) — залишок:"
+                      f" {i_row['meters_left']} {i_row['unit']}"
+                  ] = i_row["id"]
+                sel_spoiled_mat = st.selectbox(
+                    f"Забракований матеріал #{i+1}",
+                    list(spoiled_options.keys()),
+                    key=f"spoiled_sel_{row['id']}_{i}",
+                )
+              with sc2:
+                sq_val = st.number_input(
+                    f"Кількість браку #{i+1}",
+                    min_value=0.0,
+                    step=0.1,
+                    value=0.0,
+                    key=f"spoiled_qty_{row['id']}_{i}",
+                )
+              spoiled_rows_data.append((sel_spoiled_mat, sq_val, spoiled_options))
+
+            if st.form_submit_button("➕ Додати ще рядок браку"):
+              st.session_state[f"spoiled_count_{row['id']}"] += 1
+              st.rerun()
+
             comment = st.text_area(
                 "Коментар / Нотатки",
                 value=str(row["comment"]) if pd.notna(row["comment"]) else "",
@@ -530,6 +588,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
               else:
                 mat_cost = 0.0
+                total_spoiled_cost_uah = 0.0
                 conn = sqlite3.connect(DB_NAME)
                 cursor = conn.cursor()
                 cursor.execute("PRAGMA foreign_keys = ON;")
@@ -545,10 +604,16 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                     "DELETE FROM appointment_inventory WHERE appointment_id = ?",
                     (row["id"],),
                 )
+                cursor.execute(
+                    "DELETE FROM appointment_spoiled WHERE appointment_id = ?",
+                    (row["id"],),
+                )
+                
                 car_info_str = (
                     f"{row['car_brand']} {row['car_model']} ({row['car_number']})"
                 )
 
+                # Звичайні використані матеріали
                 for sel_mat, q_val, mat_options in mat_rows_data:
                   m_id = mat_options[sel_mat]
                   if m_id and q_val > 0:
@@ -578,10 +643,49 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                             (
                                 today_str,
                                 i_name_db,
-                                car_info_str,
+                                car_info_str + " [Витрата]",
                                 q_val,
                                 unit_db,
                                 new_meters_left,
+                            ),
+                        )
+
+                # Облік браку матеріалів (не йде в собівартість клієнта, списується зі складу)
+                for sel_spoiled_mat, sq_val, spoiled_options in spoiled_rows_data:
+                  sm_id = spoiled_options[sel_spoiled_mat]
+                  if sm_id and sq_val > 0:
+                    cursor.execute(
+                        "SELECT item_name, cost_per_unit_uah, meters_left, unit"
+                        " FROM inventory WHERE id = ?",
+                        (sm_id,),
+                    )
+                    s_inv_res = cursor.fetchone()
+                    if s_inv_res:
+                      s_i_name_db, s_cost_per_unit, s_meters_left_db, s_unit_db = s_inv_res
+                      spoiled_cost_item = s_cost_per_unit * sq_val
+                      total_spoiled_cost_uah += spoiled_cost_item
+
+                      cursor.execute(
+                          """INSERT INTO appointment_spoiled (appointment_id, inventory_id, qty_spoiled, cost_uah) 
+                                         VALUES (?, ?, ?, ?)""",
+                          (row["id"], sm_id, sq_val, spoiled_cost_item),
+                      )
+                      if is_now_done:
+                        new_s_meters_left = round(s_meters_left_db - sq_val, 2)
+                        cursor.execute(
+                            "UPDATE inventory SET meters_left = ? WHERE id = ?",
+                            (new_s_meters_left, sm_id),
+                        )
+                        cursor.execute(
+                            """INSERT INTO inventory_log (date, item_name, car_info, qty_used, unit, meters_left_after) 
+                                           VALUES (?, ?, ?, ?, ?, ?)""",
+                            (
+                                today_str,
+                                s_i_name_db,
+                                car_info_str + " [БРАК]",
+                                sq_val,
+                                s_unit_db,
+                                new_s_meters_left,
                             ),
                         )
 
@@ -708,7 +812,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
             f"{row['item_name']} ({row['category']}){width_info} — Залишок:"
             f" {row['meters_left']} {row['unit']}"
         ):
-          st.markdown("💬 **Історія витрат (Вихід):**")
+          st.markdown("💬 **Історія витрат та браку:**")
           log_df = run_query(
               "SELECT date, car_info, qty_used, unit, meters_left_after FROM"
               " inventory_log WHERE item_name = ? ORDER BY id DESC",
@@ -718,7 +822,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
             for _, l_row in log_df.iterrows():
               st.markdown(
                   f"- 📅 **{l_row['date']}** | 🚗 Авто: **{l_row['car_info']}** |"
-                  f" Витрачено: **-{l_row['qty_used']} {l_row['unit']}** |"
+                  f" Кількість: **-{l_row['qty_used']} {l_row['unit']}** |"
                   f" Залишок: **{l_row['meters_left_after']} {l_row['unit']}**"
               )
           else:
@@ -915,7 +1019,7 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
 
 # 4. БАЗА КЛІЄНТІВ, БОРГИ ТА ЗВІТИ
 elif st.session_state["selected_menu"] == "👥 База клієнтів, Борги та Звіти":
-  st.header("👥 База клієнтів, Борги та Єдиний звіт")
+  st.header("👥 База клієнтів, Картки та Звіти")
   debts_df = run_query(
       "SELECT id, client_name, client_phone, car_brand, car_model, car_number,"
       " final_price, date FROM appointments WHERE payment_type = 'Борг' AND"
@@ -931,16 +1035,78 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       )
     st.markdown("---")
 
-  tab_analytics, tab_all_table, tab_edit_all = st.tabs([
+  tab_clients, tab_analytics, tab_all_table, tab_edit_all = st.tabs([
+      "👤 Картки клієнтів",
       "📊 Аналітика та фільтри",
       "📋 Загальна нумерована таблиця",
       "✏️ Редагувати / Видалити записи",
   ])
 
+  # --- ТАБ: КАРТКИ КЛІЄНТІВ ---
+  with tab_clients:
+    st.subheader("👤 База клієнтів та їхні автомобілі")
+    client_search = st.text_input("Пошук клієнта за ім'ям або телефоном")
+    
+    if client_search:
+      q_c = f"%{client_search}%"
+      clients_list_df = run_query(
+          "SELECT DISTINCT client_name, client_phone FROM appointments WHERE client_name LIKE ? OR client_phone LIKE ?",
+          (q_c, q_c)
+      )
+    else:
+      clients_list_df = run_query("SELECT DISTINCT client_name, client_phone FROM appointments")
+
+    if not clients_list_df.empty:
+      for _, c_row in clients_list_df.iterrows():
+        c_name = c_row["client_name"]
+        c_phone = c_row["client_phone"]
+
+        # Рахуємо загальну суму коштів, яку клієнт приніс (по виконаних записах)
+        client_spent_df = run_query(
+            "SELECT SUM(final_price) as total_spent FROM appointments WHERE client_name = ? AND client_phone = ? AND status = 'Виконано'",
+            (c_name, c_phone)
+        )
+        total_spent = (
+            client_spent_df["total_spent"].iloc[0]
+            if not client_spent_df.empty and pd.notna(client_spent_df["total_spent"].iloc[0])
+            else 0.0
+        )
+
+        client_apps = run_query(
+            "SELECT * FROM appointments WHERE client_name = ? AND client_phone = ? ORDER BY date DESC, time DESC",
+            (c_name, c_phone)
+        )
+
+        with st.expander(f"👤 {c_name} ({c_phone}) — Всього приніс: {int(total_spent):,} грн".replace(",", " ")):
+          st.markdown(f"**Телефон:** {c_phone}")
+          st.markdown(f"**Загальна сума витрат клієнта:** **{int(total_spent):,} грн**".replace(",", " "))
+          st.markdown("---")
+          st.markdown(f"#### 🚗 Автомобілі та історія обслуговування ({len(client_apps)} записів):")
+
+          for _, a_item in client_apps.iterrows():
+            srvs_text = get_services_str(a_item["id"])
+            if a_item["status"] == "Очікує":
+              st_icon = "🟡"
+            elif a_item["status"] == "Виконано":
+              st_icon = "🟢"
+            else:
+              st_icon = "🔴"
+
+            st.markdown(
+                f"- {st_icon} **Дата:** {a_item['date']} о {a_item['time']} | "
+                f"**Авто:** {a_item['car_brand']} {a_item['car_model']} ({a_item['car_number']}) | "
+                f"**Послуги:** {srvs_text} | **Сума:** {int(a_item['final_price'])} грн "
+                f"[{a_item['status']}, Оплата: {a_item['payment_type']}]"
+            )
+            if pd.notna(a_item["comment"]) and a_item["comment"].strip():
+              st.markdown(f"  *Коментар:* {a_item['comment']}")
+    else:
+      st.info("Клієнтів не знайдено.")
+
   with tab_analytics:
     st.subheader("🔍 Пошук та аналіз усіх записів")
     search_query = st.text_input(
-        "Введіть ім'я клієнта, телефон, марку авто або держ. номер для пошуку"
+        "Введіть ім'я клієнта, телефон, марку авто або держ. номер для пошуку", key="search_analytics_input"
     )
     if search_query:
       q = f"%{search_query}%"
@@ -970,10 +1136,25 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       done_rep = filtered_rep[filtered_rep["status"] == "Виконано"]
       total_earned = done_rep["final_price"].sum()
       total_cost = done_rep["material_cost"].sum()
-      total_net = done_rep["net_profit"].sum()
+      
+      # Розрахунок браку для вибраного періоду аналітики
+      period_filter_sql_val = f"{selected_period}%" if selected_period != "За весь час" else "%"
+      sp_rep_df = run_query(
+          """SELECT SUM(s.cost_uah) as per_spoiled 
+             FROM appointment_spoiled s 
+             JOIN appointments a ON s.appointment_id = a.id 
+             WHERE a.date LIKE ?""",
+          (period_filter_sql_val,)
+      )
+      period_spoiled_cost = (
+          sp_rep_df["per_spoiled"].iloc[0]
+          if not sp_rep_df.empty and pd.notna(sp_rep_df["per_spoiled"].iloc[0])
+          else 0.0
+      )
+
+      total_net = done_rep["net_profit"].sum() - period_spoiled_cost
       total_cars = len(done_rep)
 
-      # Оптимізована сітка метрик за вашим запитом:
       # Зверху: Виконано авто та Загальний дохід
       col_m1, col_m2 = st.columns(2)
       col_m1.metric("Виконано авто", f"{total_cars} шт")
@@ -982,14 +1163,13 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       # Знизу: Витрати на матеріали (зліва) та Чистий прибуток (правіше)
       col_m3, col_m4 = st.columns(2)
       col_m3.metric("Витрати на матеріали", f"{int(total_cost):,} грн".replace(",", " "))
-      col_m4.metric("Чистий прибуток", f"{int(total_net):,} грн".replace(",", " "))
+      col_m4.metric("Чистий прибуток (з врахуванням браку)", f"{int(total_net):,} грн".replace(",", " "))
 
       st.markdown("---")
       st.subheader("📋 Деталі по записах")
       for _, f_row in filtered_rep.iterrows():
         srvs = get_services_str(f_row["id"])
         
-        # Кольоровий кружок залежно від статусу
         if f_row["status"] == "Очікує":
           status_icon = "🟡"
         elif f_row["status"] == "Виконано":
@@ -1043,7 +1223,6 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
     all_table_df = run_query("SELECT * FROM appointments ORDER BY id DESC")
     if not all_table_df.empty:
       display_rows = []
-      total_rows_count = len(all_table_df)
       for index, (_, row) in enumerate(all_table_df.iterrows(), start=1):
         srvs = get_services_str(row["id"])
         
