@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-SYSTEM_PASSWORD = "123"
+SYSTEM_PASSWORD = "blzl"
 
 # Київський часовий пояс
 KYIV_TZ = timezone(timedelta(hours=3))
