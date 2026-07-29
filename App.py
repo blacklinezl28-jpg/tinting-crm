@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-SYSTEM_PASSWORD = "blzl"
+SYSTEM_PASSWORD = "123"
 
 # Київський часовий пояс
 KYIV_TZ = timezone(timedelta(hours=3))
@@ -54,7 +54,6 @@ def trigger_auto_backup():
   st.session_state["last_db_update"] = get_now_kyiv().strftime(
       "%Y-%m-%d %H:%M:%S"
   )
-  # Автоматичний бекап файлу бази даних при будь-якій зміні
   if os.path.exists(DB_NAME):
     try:
       with open(DB_NAME, "rb") as src:
@@ -149,7 +148,7 @@ def run_query(query, params=(), fetch=True):
 
 
 if "selected_menu" not in st.session_state:
-  st.session_state["selected_menu"] = "🏠 Головна (Огляд)"
+  st.session_state["selected_menu"] = "🏠 Інформаційна панель"
 
 st.sidebar.title("🚗 Меню CRM")
 st.sidebar.markdown("---")
@@ -168,7 +167,7 @@ if os.path.exists(DB_NAME):
     )
 
 menu_options = [
-    "🏠 Головна (Огляд)",
+    "🏠 Інформаційна панель",
     "📅 Записати клієнта / Записи",
     "📦 Склад",
     "🛠️ Послуги",
@@ -202,8 +201,8 @@ def get_services_str(app_id):
   return "Не вказано"
 
 
-if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
-  st.header("🏠 Головна панель та Календар зайнятості")
+if st.session_state["selected_menu"] == "🏠 Інформаційна панель":
+  st.header("🏠 Інформаційна панель")
 
   low_stock_df = run_query(
       "SELECT item_name, meters_left, min_limit, unit FROM inventory"
@@ -222,46 +221,50 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
             f" ({m_left} {l_row['unit']})"
         )
 
-  today_df = run_query(
-      "SELECT SUM(final_price) as earned, SUM(net_profit) as profit FROM"
-      " appointments WHERE status = 'Виконано' AND date = ?",
-      (today_str,),
-  )
   month_str = get_now_kyiv().strftime("%Y-%m")
+  
+  # Звіт за поточний місяць (рахується каса, кількість авто за місяць)
   month_df = run_query(
-      "SELECT SUM(final_price) as earned, SUM(net_profit) as profit FROM"
+      "SELECT SUM(final_price) as earned, SUM(net_profit) as profit, COUNT(*) as cars_count FROM"
       " appointments WHERE status = 'Виконано' AND date LIKE ?",
       (f"{month_str}%",),
   )
 
-  c1, c2 = st.columns(2)
-  with c1:
-    earned_today = (
-        today_df["earned"].iloc[0]
-        if not today_df.empty and pd.notna(today_df["earned"].iloc[0])
-        else 0.0
-    )
-    profit_today = (
-        today_df["profit"].iloc[0]
-        if not today_df.empty and pd.notna(today_df["profit"].iloc[0])
-        else 0.0
-    )
-    st.metric("💰 Заробіток за сьогодні", f"{int(earned_today):,} грн".replace(",", " "))
-    st.metric("📈 Прибуток за сьогодні", f"{int(profit_today):,} грн".replace(",", " "))
+  # Загальна кількість автомобілів, які записані взагалі в чергу (усі статуси або всі нескасовані, тут беремо всі записи в базі або нескасовані)
+  total_queue_df = run_query(
+      "SELECT COUNT(*) as total_queue FROM appointments WHERE status != 'Скасовано'"
+  )
+  total_queue_count = (
+      total_queue_df["total_queue"].iloc[0]
+      if not total_queue_df.empty and pd.notna(total_queue_df["total_queue"].iloc[0])
+      else 0
+  )
 
+  earned_month = (
+      month_df["earned"].iloc[0]
+      if not month_df.empty and pd.notna(month_df["earned"].iloc[0])
+      else 0.0
+  )
+  profit_month = (
+      month_df["profit"].iloc[0]
+      if not month_df.empty and pd.notna(month_df["profit"].iloc[0])
+      else 0.0
+  )
+  cars_month_count = (
+      month_df["cars_count"].iloc[0]
+      if not month_df.empty and pd.notna(month_df["cars_count"].iloc[0])
+      else 0
+  )
+
+  c1, c2, c3, c4 = st.columns(4)
+  with c1:
+    st.metric("💰 Загальна каса за місяць", f"{int(earned_month):,} грн".replace(",", " "))
   with c2:
-    earned_month = (
-        month_df["earned"].iloc[0]
-        if not month_df.empty and pd.notna(month_df["earned"].iloc[0])
-        else 0.0
-    )
-    profit_month = (
-        month_df["profit"].iloc[0]
-        if not month_df.empty and pd.notna(month_df["profit"].iloc[0])
-        else 0.0
-    )
-    st.metric("💰 Заробіток за місяць", f"{int(earned_month):,} грн".replace(",", " "))
     st.metric("📈 Прибуток за місяць", f"{int(profit_month):,} грн".replace(",", " "))
+  with c3:
+    st.metric("🚗 Авто за місяць (виконано)", f"{int(cars_month_count)} шт")
+  with c4:
+    st.metric("📌 Всього в черзі", f"{int(total_queue_count)} шт")
 
   st.markdown("---")
   st.subheader("⏰ Найближчий запис")
@@ -282,6 +285,40 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
       st.rerun()
   else:
     st.info("Наразі немає найближчих записів у статусі «Очікує».")
+
+  st.markdown("---")
+  st.subheader("📅 Календар зайнятості")
+  
+  # Отримуємо всі записи для побудови календаря в стовпчик
+  all_appointments_cal = run_query("SELECT date, status, car_brand, car_model, car_number, time FROM appointments ORDER BY date ASC, time ASC")
+  
+  if not all_appointments_cal.empty:
+    # Групуємо за датами
+    unique_dates = all_appointments_cal["date"].unique()
+    
+    for d_val in unique_dates:
+      day_apps = all_appointments_cal[all_appointments_cal["date"] == d_val]
+      
+      # Визначаємо загальний статус дня за пріоритетом: якщо є хоч один "Очікує" -> жовтий, якщо всі виконані -> зелений, якщо скасовані -> червоний
+      statuses = day_apps["status"].tolist()
+      if "Очікує" in statuses:
+        badge_color = "🟡"
+        status_text = "Є очікувані записи"
+      elif "Виконано" in statuses and "Очікує" not in statuses:
+        badge_color = "🟢"
+        status_text = "Виконано"
+      else:
+        badge_color = "🔴"
+        status_text = "Скасовано"
+
+      with st.expander(f"{badge_color} Дата: {d_val} ({len(day_apps)} авто)"):
+        for _, app_row in day_apps.iterrows():
+          s_color = "🟡" if app_row["status"] == "Очікує" else ("🟢" if app_row["status"] == "Виконано" else "🔴")
+          st.markdown(
+              f"- {s_color} **Час:** {app_row['time']} | **Авто:** {app_row['car_brand']} {app_row['car_model']} ({app_row['car_number']}) | **Статус:** {app_row['status']}"
+          )
+  else:
+    st.info("У календарі поки немає жодних записів.")
 
 # 1. ЗАПИСАТИ КЛІЄНТА / ЗАПИСИ
 elif st.session_state["selected_menu"] == "📅 Записати клієнта / Записи":
@@ -403,7 +440,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             else:
               st.info("Немає доступних послуг у каталозі.")
 
-            # Обчислюємо рекомендовану ціну на основі обраних послуг
             recommended_price = 0.0
             if not all_s.empty and updated_selected_services:
               rec_df = all_s[all_s["id"].isin(updated_selected_services)]
@@ -491,7 +527,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
             submitted = st.form_submit_button("Зберегти зміни / Фініш")
             if submitted:
-              # Перевірка часу виконання (з 8:00 до 21:00)
               if not (d_time(8, 0) <= new_work_time <= d_time(21, 0)):
                 st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
               else:
@@ -503,7 +538,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                     new_status == "Виконано" and row["status"] != "Виконано"
                 )
                 
-                # Оновлюємо послуги запису
                 cursor.execute("DELETE FROM appointment_services WHERE appointment_id = ?", (row["id"],))
                 for s_id_upd in updated_selected_services:
                   cursor.execute("INSERT INTO appointment_services (appointment_id, service_id) VALUES (?, ?)", (row["id"], s_id_upd))
@@ -702,7 +736,6 @@ elif st.session_state["selected_menu"] == "📦 Склад":
               key=f"inv_c_{row['id']}",
           )
           
-          # Ширина рулону потрібна лише якщо це Плівка
           i_width = float(row["width_cm"]) if pd.notna(row["width_cm"]) else 0.0
           if i_cat == "Плівка":
             i_width = st.number_input(
@@ -794,7 +827,6 @@ elif st.session_state["selected_menu"] == "📦 Склад":
       item_name = st.text_input("Назва (наприклад, LLumar ATR 15 або Серветки)")
       category = st.selectbox("Категорія", ["Плівка", "Розхідник/Хімія"])
       
-      # Якщо категорія Плівка — запитуємо ширину, якщо Розхідник — ширина не потрібна
       width_cm = 0.0
       if category == "Плівка":
         width_cm = st.number_input(
