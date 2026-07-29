@@ -207,6 +207,20 @@ def get_services_str(app_id):
   return "Не вказано"
 
 
+def format_time_str(t_raw):
+  if not t_raw:
+    return ""
+  try:
+    if isinstance(t_raw, str):
+      # Спробуємо розпарсити час у форматі HH:MM або HH:MM:SS
+      parts = t_raw.split(":")
+      if len(parts) >= 2:
+        return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
+    return str(t_raw)
+  except:
+    return str(t_raw)
+
+
 if st.session_state["selected_menu"] == "🏠 Інформаційна панель":
   st.header("🏠 Інформаційна панель")
 
@@ -235,7 +249,6 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       (f"{month_str}%",),
   )
 
-  # Розрахунок браку за місяць для головної сторінки
   month_spoiled_df = run_query(
       """SELECT SUM(s.cost_uah) as total_spoiled_cost 
          FROM appointment_spoiled s 
@@ -268,7 +281,6 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       if not month_df.empty and pd.notna(month_df["profit"].iloc[0])
       else 0.0
   )
-  # Чистий прибуток враховує мінус вартість браку
   profit_month = raw_profit_month - spoiled_month_cost
 
   cars_month_count = (
@@ -277,22 +289,20 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       else 0
   )
 
-  # Дві колонки для фінансів та показників
-  col_l1, col_r1 = st.columns(2)
-  with col_l1:
-    st.metric("💰 Загальна каса за місяць", f"{int(earned_month):,} грн".replace(",", " "))
-  with col_r1:
-    st.metric("📈 Прибуток за місяць (з врахуванням браку)", f"{int(profit_month):,} грн".replace(",", " "))
+  # Більш компактне розташування метрик у кілька колонок
+  m_col1, m_col2, m_col3 = st.columns(3)
+  with m_col1:
+    st.metric("💰 Каса за місяць", f"{int(earned_month):,} грн".replace(",", " "))
+  with m_col2:
+    st.metric("📈 Прибуток (з браком)", f"{int(profit_month):,} грн".replace(",", " "))
+  with m_col3:
+    st.metric("⚠️ Брак (у грошах)", f"{int(spoiled_month_cost):,} грн".replace(",", " "))
 
-  col_l2, col_r2 = st.columns(2)
-  with col_l2:
-    st.metric("🚗 Авто за місяць (виконано)", f"{int(cars_month_count)} шт")
-  with col_r2:
+  m_col4, m_col5 = st.columns(2)
+  with m_col4:
+    st.metric("🚗 Виконано авто", f"{int(cars_month_count)} шт")
+  with m_col5:
     st.metric("📌 Всього в черзі", f"{int(total_queue_count)} шт")
-
-  col_l3, col_r3 = st.columns(2)
-  with col_l3:
-    st.metric("⚠️ Брак за місяць (в грошах)", f"{int(spoiled_month_cost):,} грн".replace(",", " "))
 
   st.markdown("---")
   st.subheader("⏰ Найближчий запис")
@@ -302,8 +312,9 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
   )
   if not next_app.empty:
     row = next_app.iloc[0]
+    formatted_time = format_time_str(row['time'])
     st.success(
-        f"📅 **Дата виконання робіт:** {row['date']} о {row['time']}\n\n🚗"
+        f"📅 **Дата виконання робіт:** {row['date']} о {formatted_time}\n\n🚗"
         f" **Автомобіль:** {row['car_brand']} {row['car_model']}"
         f" ({row['car_number']})\n\n👤 **Клієнт:** {row['client_name']}"
         f" ({row['client_phone']})"
@@ -336,8 +347,9 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
       with st.expander(f"{badge_color} Дата: {d_val} ({len(day_apps)} авто)"):
         for _, app_row in day_apps.iterrows():
           s_color = "🟡" if app_row["status"] == "Очікує" else ("🟢" if app_row["status"] == "Виконано" else "🔴")
+          f_time = format_time_str(app_row['time'])
           st.markdown(
-              f"- {s_color} **Час:** {app_row['time']} | **Авто:** {app_row['car_brand']} {app_row['car_model']} ({app_row['car_number']}) | **Статус:** {app_row['status']}"
+              f"- {s_color} **Час:** {f_time} | **Авто:** {app_row['car_brand']} {app_row['car_model']} ({app_row['car_number']}) | **Статус:** {app_row['status']}"
           )
   else:
     st.info("У календарі поки немає жодних записів.")
@@ -358,6 +370,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
         pay_info = (
             f"[{row['payment_type']}]" if pd.notna(row["payment_type"]) else ""
         )
+        f_time_row = format_time_str(row['time'])
         srv_ids = run_query(
             "SELECT service_id FROM appointment_services WHERE appointment_id"
             " = ?",
@@ -379,7 +392,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             )
 
         with st.expander(
-            f"{status_color} На виконання: {row['date']} {row['time']} |"
+            f"{status_color} На виконання: {row['date']} {f_time_row} |"
             f" {row['client_name']} ({row['car_brand']} {row['car_model']} -"
             f" {row['car_number']}) | Послуги: {services_text} | Статус:"
             f" {row['status']} {pay_info}"
@@ -389,7 +402,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               f"**Створено:**"
               f" {row['created_at'] if pd.notna(row['created_at']) else 'Не вказано'}"
           )
-          st.write(f"**Дата виконання робіт:** {row['date']} о {row['time']}")
+          st.write(f"**Дата виконання робіт:** {row['date']} о {f_time_row}")
           st.write(f"**Статус:** {row['status']}")
           st.write(f"**Замовлені послуги:** {services_text}")
 
@@ -446,7 +459,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 cur_time_obj = get_now_kyiv().time()
 
             new_work_date = st.date_input("Дата виконання робіт", value=cur_date_obj, key=f"upd_date_{row['id']}")
-            new_work_time = st.time_input("Час виконання робіт (з 8:00 до 21:00)", value=cur_time_obj, key=f"upd_time_{row['id']}")
+            new_work_time = st.time_input("Час виконання робіт (з 07:00 по 22:00)", value=cur_time_obj, key=f"upd_time_{row['id']}")
 
             st.markdown("#### 🛠️ Керування послугами:")
             updated_selected_services = []
@@ -527,7 +540,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               st.session_state[f"mat_count_{row['id']}"] += 1
               st.rerun()
 
-            # --- БЛОК БРАКУ МАТЕРІАЛІВ ---
             st.markdown("---")
             st.markdown("#### ❌ Облік браку матеріалів")
             if f"spoiled_count_{row['id']}" not in st.session_state:
@@ -584,8 +596,8 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
             submitted = st.form_submit_button("Зберегти зміни / Фініш")
             if submitted:
-              if not (d_time(8, 0) <= new_work_time <= d_time(21, 0)):
-                st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
+              if not (d_time(7, 0) <= new_work_time <= d_time(22, 0)):
+                st.error("❌ Час виконання робіт має бути в межах з 07:00 по 22:00!")
               else:
                 mat_cost = 0.0
                 total_spoiled_cost_uah = 0.0
@@ -613,7 +625,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                     f"{row['car_brand']} {row['car_model']} ({row['car_number']})"
                 )
 
-                # Звичайні використані матеріали
                 for sel_mat, q_val, mat_options in mat_rows_data:
                   m_id = mat_options[sel_mat]
                   if m_id and q_val > 0:
@@ -650,7 +661,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                             ),
                         )
 
-                # Облік браку матеріалів (не йде в собівартість клієнта, списується зі складу)
                 for sel_spoiled_mat, sq_val, spoiled_options in spoiled_rows_data:
                   sm_id = spoiled_options[sel_spoiled_mat]
                   if sm_id and sq_val > 0:
@@ -752,13 +762,13 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
       car_number = st.text_input("Держ. номер")
       st.markdown("### 📅 Дата та час виконання робіт")
       work_date = st.date_input("На коли записати автомобіль", value=get_now_kyiv().date())
-      time = st.time_input("Час візиту (з 8:00 до 21:00)", value=get_now_kyiv().time())
+      time = st.time_input("Час візиту (з 07:00 по 22:00)", value=get_now_kyiv().time())
       comment = st.text_area("Початковий коментар")
 
       submit_app = st.form_submit_button("Записати клієнта")
       if submit_app:
-        if not (d_time(8, 0) <= time <= d_time(21, 0)):
-          st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
+        if not (d_time(7, 0) <= time <= d_time(22, 0)):
+          st.error("❌ Час виконання робіт має бути в межах з 07:00 по 22:00!")
         elif c_name and car_brand:
           conn = sqlite3.connect(DB_NAME)
           cursor = conn.cursor()
@@ -1042,7 +1052,6 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       "✏️ Редагувати / Видалити записи",
   ])
 
-  # --- ТАБ: КАРТКИ КЛІЄНТІВ ---
   with tab_clients:
     st.subheader("👤 База клієнтів та їхні автомобілі")
     client_search = st.text_input("Пошук клієнта за ім'ям або телефоном")
@@ -1061,7 +1070,6 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
         c_name = c_row["client_name"]
         c_phone = c_row["client_phone"]
 
-        # Рахуємо загальну суму коштів, яку клієнт приніс (по виконаних записах)
         client_spent_df = run_query(
             "SELECT SUM(final_price) as total_spent FROM appointments WHERE client_name = ? AND client_phone = ? AND status = 'Виконано'",
             (c_name, c_phone)
@@ -1091,9 +1099,10 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               st_icon = "🟢"
             else:
               st_icon = "🔴"
+            f_time_item = format_time_str(a_item['time'])
 
             st.markdown(
-                f"- {st_icon} **Дата:** {a_item['date']} о {a_item['time']} | "
+                f"- {st_icon} **Дата:** {a_item['date']} о {f_time_item} | "
                 f"**Авто:** {a_item['car_brand']} {a_item['car_model']} ({a_item['car_number']}) | "
                 f"**Послуги:** {srvs_text} | **Сума:** {int(a_item['final_price'])} грн "
                 f"[{a_item['status']}, Оплата: {a_item['payment_type']}]"
@@ -1137,7 +1146,6 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       total_earned = done_rep["final_price"].sum()
       total_cost = done_rep["material_cost"].sum()
       
-      # Розрахунок браку для вибраного періоду аналітики
       period_filter_sql_val = f"{selected_period}%" if selected_period != "За весь час" else "%"
       sp_rep_df = run_query(
           """SELECT SUM(s.cost_uah) as per_spoiled 
@@ -1155,12 +1163,10 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       total_net = done_rep["net_profit"].sum() - period_spoiled_cost
       total_cars = len(done_rep)
 
-      # Зверху: Виконано авто та Загальний дохід
       col_m1, col_m2 = st.columns(2)
       col_m1.metric("Виконано авто", f"{total_cars} шт")
       col_m2.metric("Загальний дохід", f"{int(total_earned):,} грн".replace(",", " "))
 
-      # Знизу: Витрати на матеріали (зліва) та Чистий прибуток (правіше)
       col_m3, col_m4 = st.columns(2)
       col_m3.metric("Витрати на матеріали", f"{int(total_cost):,} грн".replace(",", " "))
       col_m4.metric("Чистий прибуток (з врахуванням браку)", f"{int(total_net):,} грн".replace(",", " "))
@@ -1169,6 +1175,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       st.subheader("📋 Деталі по записах")
       for _, f_row in filtered_rep.iterrows():
         srvs = get_services_str(f_row["id"])
+        f_time_rep = format_time_str(f_row['time'])
         
         if f_row["status"] == "Очікує":
           status_icon = "🟡"
@@ -1184,7 +1191,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
           c_1, c_2 = st.columns(2)
           with c_1:
             st.write(f"**📅 Дата створення запису:** {f_row['created_at']}")
-            st.write(f"**⏰ Дата та час виконання:** {f_row['date']} о {f_row['time']}")
+            st.write(f"**⏰ Дата та час виконання:** {f_row['date']} о {f_time_rep}")
             st.write(f"**👤 Клієнт:** {f_row['client_name']}")
             st.write(f"**📞 Телефон:** {f_row['client_phone']}")
             st.write(f"**🚗 Автомобіль:** {f_row['car_brand']} {f_row['car_model']} ({f_row['car_number']})")
@@ -1225,13 +1232,14 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       display_rows = []
       for index, (_, row) in enumerate(all_table_df.iterrows(), start=1):
         srvs = get_services_str(row["id"])
+        f_time_tbl = format_time_str(row['time'])
         
         photos_chk = run_query("SELECT id FROM appointment_photos WHERE appointment_id = ?", (row["id"],))
         has_photos = "📸 Є фото" if not photos_chk.empty else "❌ Немає фото"
         
         display_rows.append({
             "№": index,
-            "Дата візиту": f"{row['date']} {row['time']}",
+            "Дата візиту": f"{row['date']} {f_time_tbl}",
             "Клієнт": row["client_name"],
             "Телефон": row["client_phone"],
             "Автомобіль": f"{row['car_brand']} {row['car_model']} ({row['car_number']})",
@@ -1260,8 +1268,9 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
         )
         is_debt_mark = "🔴 БОРГ" if a_row["payment_type"] == "Борг" else "🟢"
         srvs = get_services_str(a_row["id"])
+        f_time_ed = format_time_str(a_row['time'])
         with st.expander(
-            f"{is_debt_mark} Виконання: {a_row['date']} | Клієнт:"
+            f"{is_debt_mark} Виконання: {a_row['date']} {f_time_ed} | Клієнт:"
             f" {a_row['client_name']} | Послуги: {srvs} | Сума:"
             f" {int(a_row['final_price'])} грн {p_type_label}"
         ):
@@ -1306,7 +1315,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                 ed_time_obj = get_now_kyiv().time()
 
             ed_date = st.date_input("Дата виконання", value=ed_date_obj, key=f"ed_date_{a_row['id']}")
-            ed_time = st.time_input("Час виконання (з 8:00 до 21:00)", value=ed_time_obj, key=f"ed_time_{a_row['id']}")
+            ed_time = st.time_input("Час виконання (з 07:00 по 22:00)", value=ed_time_obj, key=f"ed_time_{a_row['id']}")
 
             ed_price = st.number_input(
                 "Фінальна ціна (грн)",
@@ -1349,8 +1358,8 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               )
 
             if save_btn:
-              if not (d_time(8, 0) <= ed_time <= d_time(21, 0)):
-                st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
+              if not (d_time(7, 0) <= ed_time <= d_time(22, 0)):
+                st.error("❌ Час виконання робіт має бути в межах з 07:00 по 22:00!")
               else:
                 run_query(
                     """UPDATE appointments SET client_name = ?, client_phone = ?, car_brand = ?, 
