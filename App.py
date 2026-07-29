@@ -8,9 +8,20 @@ st.set_page_config(
     page_title="Detailing & Tinting CRM Pro", page_icon="🚗", layout="wide"
 )
 
+# Стиль для зміни кольору будь-якої кнопки при натисканні (активі, кліку)
+st.markdown("""
+    <style>
+    div.stButton > button:active, div.stFormSubmitButton > button:active {
+        background-color: #ff4b4b !important;
+        color: white !important;
+        border-color: #ff4b4b !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 SYSTEM_PASSWORD = "123"
 
-# Київський часовий пояс (UTC+3 або з урахуванням зимового/літнього часу)
+# Київський часовий пояс
 KYIV_TZ = timezone(timedelta(hours=3))
 
 def get_now_kyiv():
@@ -37,6 +48,20 @@ if not check_password():
   st.stop()
 
 DB_NAME = "tinting_crm.db"
+
+
+def trigger_auto_backup():
+  st.session_state["last_db_update"] = get_now_kyiv().strftime(
+      "%Y-%m-%d %H:%M:%S"
+  )
+  # Автоматичний бекап файлу бази даних при будь-якій зміні
+  if os.path.exists(DB_NAME):
+    try:
+      with open(DB_NAME, "rb") as src:
+        with open("tinting_crm_auto_backup.db", "wb") as dst:
+          dst.write(src.read())
+    except Exception:
+      pass
 
 
 def init_db():
@@ -95,15 +120,10 @@ def init_db():
 
   conn.commit()
   conn.close()
+  trigger_auto_backup()
 
 
 init_db()
-
-
-def trigger_auto_backup():
-  st.session_state["last_db_update"] = get_now_kyiv().strftime(
-      "%Y-%m-%d %H:%M:%S"
-  )
 
 
 if "last_db_update" not in st.session_state:
@@ -226,8 +246,8 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
         if not today_df.empty and pd.notna(today_df["profit"].iloc[0])
         else 0.0
     )
-    st.metric("💰 Заробіток за сьогодні", f"{earned_today:,.2f} грн")
-    st.metric("📈 Прибуток за сьогодні", f"{profit_today:,.2f} грн")
+    st.metric("💰 Заробіток за сьогодні", f"{int(earned_today):,} грн".replace(",", " "))
+    st.metric("📈 Прибуток за сьогодні", f"{int(profit_today):,} грн".replace(",", " "))
 
   with c2:
     earned_month = (
@@ -240,8 +260,8 @@ if st.session_state["selected_menu"] == "🏠 Головна (Огляд)":
         if not month_df.empty and pd.notna(month_df["profit"].iloc[0])
         else 0.0
     )
-    st.metric("💰 Заробіток за місяць", f"{earned_month:,.2f} грн")
-    st.metric("📈 Прибуток за місяць", f"{profit_month:,.2f} грн")
+    st.metric("💰 Заробіток за місяць", f"{int(earned_month):,} грн".replace(",", " "))
+    st.metric("📈 Прибуток за місяць", f"{int(profit_month):,} грн".replace(",", " "))
 
   st.markdown("---")
   st.subheader("⏰ Найближчий запис")
@@ -370,7 +390,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             if not matched_services.empty:
               for _, s_row in matched_services.iterrows():
                 st.write(
-                    f"- {s_row['service_name']} — **{s_row['default_price']} грн**"
+                    f"- {s_row['service_name']} — **{int(s_row['default_price'])} грн**"
                 )
                 recommended_price += s_row["default_price"]
             else:
@@ -378,6 +398,8 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
             final_price = st.number_input(
                 "Фінальна ціна за послуги (грн)",
+                min_value=0.0,
+                step=50.0,
                 value=(
                     float(row["final_price"])
                     if pd.notna(row["final_price"]) and row["final_price"] > 0
@@ -424,7 +446,8 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 q_val = st.number_input(
                     f"Кількість #{i+1}",
                     min_value=0.0,
-                    value=0.0,
+                    step=0.1,
+                    value=1.0,
                     key=f"mat_qty_{row['id']}_{i}",
                 )
               mat_rows_data.append((sel_mat, q_val, mat_options))
@@ -488,7 +511,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                         (row["id"], m_id, q_val),
                     )
                     if is_now_done:
-                      new_meters_left = meters_left_db - q_val
+                      new_meters_left = round(meters_left_db - q_val, 2)
                       cursor.execute(
                           "UPDATE inventory SET meters_left = ? WHERE id = ?",
                           (new_meters_left, m_id),
@@ -553,7 +576,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
     if not services_df.empty:
       for _, s_row in services_df.iterrows():
         if st.checkbox(
-            f"{s_row['service_name']} — {s_row['default_price']} грн",
+            f"{s_row['service_name']} — {int(s_row['default_price'])} грн",
             key=f"srv_chk_{s_row['id']}",
         ):
           selected_services.append(s_row["id"])
@@ -655,6 +678,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
           )
           i_width = st.number_input(
               "Ширина рулону (см)",
+              step=0.1,
               value=(
                   float(row["width_cm"]) if pd.notna(row["width_cm"]) else 152.0
               ),
@@ -662,11 +686,13 @@ elif st.session_state["selected_menu"] == "📦 Склад":
           )
           i_meters = st.number_input(
               "Залишок",
+              step=0.1,
               value=float(row["meters_left"]),
               key=f"inv_m_{row['id']}",
           )
           i_min_limit = st.number_input(
               "Критичний ліміт попередження",
+              step=0.1,
               value=float(row["min_limit"])
               if "min_limit" in row and pd.notna(row["min_limit"])
               else 5.0,
@@ -674,6 +700,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
           )
           i_p_usd = st.number_input(
               "Ціна за одиницю ($)",
+              step=0.5,
               value=(
                   float(row["price_usd"]) if pd.notna(row["price_usd"]) else 0.0
               ),
@@ -681,6 +708,7 @@ elif st.session_state["selected_menu"] == "📦 Склад":
           )
           i_rate = st.number_input(
               "Курс долара (грн)",
+              step=0.5,
               value=(
                   float(row["exchange_rate"])
                   if pd.notna(row["exchange_rate"])
@@ -736,12 +764,12 @@ elif st.session_state["selected_menu"] == "📦 Склад":
       item_name = st.text_input("Назва (наприклад, LLumar ATR 15)")
       category = st.selectbox("Категорія", ["Плівка", "Розхідник/Хімія"])
       width_cm = st.number_input(
-          "Ширина рулону (см, якщо плівка)", value=152.0
+          "Ширина рулону (см, якщо плівка)", step=0.1, value=152.0
       )
-      meters_left = st.number_input("Кількість (метрів або штук)", value=30.0)
-      min_limit = st.number_input("Критичний ліміт попередження", value=5.0)
-      price_usd = st.number_input("Ціна за одиницю в доларах ($)", value=15.0)
-      exchange_rate = st.number_input("Курс долара до гривні", value=41.0)
+      meters_left = st.number_input("Кількість (метрів або штук)", step=0.1, value=30.0)
+      min_limit = st.number_input("Критичний ліміт попередження", step=0.1, value=5.0)
+      price_usd = st.number_input("Ціна за одиницю в доларах ($)", step=0.5, value=15.0)
+      exchange_rate = st.number_input("Курс долара до гривні", step=0.5, value=41.0)
       unit = st.text_input("Одиниця виміру (м або шт)", value="м")
       if st.form_submit_button("Додати на склад"):
         if item_name:
@@ -773,12 +801,13 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
     serv_df = run_query("SELECT * FROM services")
     if not serv_df.empty:
       for idx, row in serv_df.iterrows():
-        with st.expander(f"{row['service_name']} — {row['default_price']} грн"):
+        with st.expander(f"{row['service_name']} — {int(row['default_price'])} грн"):
           new_name = st.text_input(
               "Назва послуги", value=row["service_name"], key=f"s_name_{row['id']}"
           )
           new_price = st.number_input(
               "Ціна за замовчуванням (грн)",
+              step=50.0,
               value=float(row["default_price"]),
               key=f"s_price_{row['id']}",
           )
@@ -808,7 +837,7 @@ elif st.session_state["selected_menu"] == "🛠️ Послуги":
   with tab2:
     with st.form("add_service_form", clear_on_submit=True):
       s_name = st.text_input("Назва послуги")
-      s_price = st.number_input("Ціна за замовчуванням (грн)", value=2500.0)
+      s_price = st.number_input("Ціна за замовчуванням (грн)", step=50.0, value=2500.0)
       if st.form_submit_button("Додати послугу"):
         if s_name:
           run_query(
@@ -832,7 +861,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
       st.markdown(
           f"🔴 **Клієнт:** {d_row['client_name']} ({d_row['client_phone']}) |"
           f" **Авто:** {d_row['car_brand']} {d_row['car_model']}"
-          f" ({d_row['car_number']}) | **Борг:** **{d_row['final_price']} грн**"
+          f" ({d_row['car_number']}) | **Борг:** **{int(d_row['final_price'])} грн**"
       )
     st.markdown("---")
 
@@ -880,9 +909,9 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
 
       col1, col2, col3, col4 = st.columns(4)
       col1.metric("Виконано авто", f"{total_cars} шт")
-      col2.metric("Загальний дохід", f"{total_earned:,.2f} грн")
-      col3.metric("Витрати на матеріали", f"{total_cost:,.2f} грн")
-      col4.metric("Чистий прибуток", f"{total_net:,.2f} грн")
+      col2.metric("Загальний дохід", f"{int(total_earned):,} грн".replace(",", " "))
+      col3.metric("Витрати на матеріали", f"{int(total_cost):,} грн".replace(",", " "))
+      col4.metric("Чистий прибуток", f"{int(total_net):,} грн".replace(",", " "))
 
       st.markdown("---")
       st.subheader("📋 Деталі по записах")
@@ -890,7 +919,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
         srvs = get_services_str(f_row["id"])
         is_debt = "🔴 БОРГ" if f_row["payment_type"] == "Борг" else "🟢"
         with st.expander(
-            f"{is_debt} Дата: {f_row['date']} | Клієнт: {f_row['client_name']} ({f_row['client_phone']}) | Авто: {f_row['car_brand']} {f_row['car_model']} ({f_row['car_number']}) | Послуги: {srvs} | Сума: {f_row['final_price']} грн [{f_row['status']}]"
+            f"{is_debt} Дата: {f_row['date']} | Клієнт: {f_row['client_name']} ({f_row['client_phone']}) | Авто: {f_row['car_brand']} {f_row['car_model']} ({f_row['car_number']}) | Послуги: {srvs} | Сума: {int(f_row['final_price'])} грн [{f_row['status']}]"
         ):
           c_1, c_2 = st.columns(2)
           with c_1:
@@ -903,7 +932,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
             st.write(f"**🛠️ Послуги:** {srvs}")
             st.write(f"**📌 Статус:** {f_row['status']}")
             st.write(f"**💳 Тип оплати:** {f_row['payment_type']}")
-            st.write(f"**💰 Дохід:** {f_row['final_price']} грн | **Прибуток:** {f_row['net_profit']} грн")
+            st.write(f"**💰 Дохід:** {int(f_row['final_price'])} грн | **Прибуток:** {int(f_row['net_profit'])} грн")
             st.write(f"**💬 Коментар:** {f_row['comment'] if pd.notna(f_row['comment']) else 'Немає'}")
 
           p_df = run_query(
@@ -934,6 +963,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
     all_table_df = run_query("SELECT * FROM appointments ORDER BY id DESC")
     if not all_table_df.empty:
       display_rows = []
+      total_rows_count = len(all_table_df)
       for index, (_, row) in enumerate(all_table_df.iterrows(), start=1):
         srvs = get_services_str(row["id"])
         
@@ -948,7 +978,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
             "Автомобіль": f"{row['car_brand']} {row['car_model']} ({row['car_number']})",
             "Послуги": srvs,
             "Статус": row["status"],
-            "Сума (грн)": row["final_price"],
+            "Сума (грн)": int(row["final_price"]) if pd.notna(row["final_price"]) else 0,
             "Оплата": row["payment_type"],
             "Фото": has_photos,
             "Коментар": row["comment"]
@@ -974,7 +1004,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
         with st.expander(
             f"{is_debt_mark} Виконання: {a_row['date']} | Клієнт:"
             f" {a_row['client_name']} | Послуги: {srvs} | Сума:"
-            f" {a_row['final_price']} грн {p_type_label}"
+            f" {int(a_row['final_price'])} грн {p_type_label}"
         ):
           with st.form(f"admin_edit_app_{a_row['id']}"):
             ed_client = st.text_input(
@@ -1021,6 +1051,8 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
 
             ed_price = st.number_input(
                 "Фінальна ціна (грн)",
+                min_value=0.0,
+                step=50.0,
                 value=float(a_row["final_price"])
                 if pd.notna(a_row["final_price"])
                 else 0.0,
