@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time as d_time
 import os
 import sqlite3
 import pandas as pd
@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-SYSTEM_PASSWORD = "123"
+SYSTEM_PASSWORD = "blzl"
 
 # Київський часовий пояс
 KYIV_TZ = timezone(timedelta(hours=3))
@@ -306,14 +306,18 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
         )
         matched_services = pd.DataFrame()
         services_text = "Не вказано"
+        assigned_service_ids = []
         if not srv_ids.empty:
-          all_s = run_query("SELECT * FROM services")
-          if not all_s.empty:
-            matched_services = all_s[all_s["id"].isin(srv_ids["service_id"])]
-            if not matched_services.empty:
-              services_text = ", ".join(
-                  matched_services["service_name"].tolist()
-              )
+          assigned_service_ids = srv_ids["service_id"].tolist()
+        
+        all_s = run_query("SELECT * FROM services")
+
+        if assigned_service_ids and not all_s.empty:
+          matched_services = all_s[all_s["id"].isin(assigned_service_ids)]
+          if not matched_services.empty:
+            services_text = ", ".join(
+                matched_services["service_name"].tolist()
+            )
 
         with st.expander(
             f"{status_color} На виконання: {row['date']} {row['time']} |"
@@ -383,18 +387,27 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 cur_time_obj = get_now_kyiv().time()
 
             new_work_date = st.date_input("Дата виконання робіт", value=cur_date_obj, key=f"upd_date_{row['id']}")
-            new_work_time = st.time_input("Час виконання робіт", value=cur_time_obj, key=f"upd_time_{row['id']}")
+            new_work_time = st.time_input("Час виконання робіт (з 8:00 до 21:00)", value=cur_time_obj, key=f"upd_time_{row['id']}")
 
-            recommended_price = 0.0
-            st.markdown("#### 🛠️ Послуги та вартість:")
-            if not matched_services.empty:
-              for _, s_row in matched_services.iterrows():
-                st.write(
-                    f"- {s_row['service_name']} — **{int(s_row['default_price'])} грн**"
-                )
-                recommended_price += s_row["default_price"]
+            st.markdown("#### 🛠️ Керування послугами (Додати / Скасувати):")
+            updated_selected_services = []
+            if not all_s.empty:
+              for _, s_row in all_s.iterrows():
+                is_checked = s_row["id"] in assigned_service_ids
+                if st.checkbox(
+                    f"{s_row['service_name']} — {int(s_row['default_price'])} грн",
+                    value=is_checked,
+                    key=f"upd_srv_{row['id']}_{s_row['id']}"
+                ):
+                  updated_selected_services.append(s_row["id"])
             else:
-              st.write("Послуги не вибрані.")
+              st.info("Немає доступних послуг у каталозі.")
+
+            # Обчислюємо рекомендовану ціну на основі обраних послуг
+            recommended_price = 0.0
+            if not all_s.empty and updated_selected_services:
+              rec_df = all_s[all_s["id"].isin(updated_selected_services)]
+              recommended_price = rec_df["default_price"].sum()
 
             final_price = st.number_input(
                 "Фінальна ціна за послуги (грн)",
@@ -478,93 +491,103 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
             submitted = st.form_submit_button("Зберегти зміни / Фініш")
             if submitted:
-              mat_cost = 0.0
-              conn = sqlite3.connect(DB_NAME)
-              cursor = conn.cursor()
-              cursor.execute("PRAGMA foreign_keys = ON;")
-              is_now_done = (
-                  new_status == "Виконано" and row["status"] != "Виконано"
-              )
-              cursor.execute(
-                  "DELETE FROM appointment_inventory WHERE appointment_id = ?",
-                  (row["id"],),
-              )
-              car_info_str = (
-                  f"{row['car_brand']} {row['car_model']} ({row['car_number']})"
-              )
+              # Перевірка часу виконання (з 8:00 до 21:00)
+              if not (d_time(8, 0) <= new_work_time <= d_time(21, 0)):
+                st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
+              else:
+                mat_cost = 0.0
+                conn = sqlite3.connect(DB_NAME)
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA foreign_keys = ON;")
+                is_now_done = (
+                    new_status == "Виконано" and row["status"] != "Виконано"
+                )
+                
+                # Оновлюємо послуги запису
+                cursor.execute("DELETE FROM appointment_services WHERE appointment_id = ?", (row["id"],))
+                for s_id_upd in updated_selected_services:
+                  cursor.execute("INSERT INTO appointment_services (appointment_id, service_id) VALUES (?, ?)", (row["id"], s_id_upd))
 
-              for sel_mat, q_val, mat_options in mat_rows_data:
-                m_id = mat_options[sel_mat]
-                if m_id and q_val > 0:
-                  cursor.execute(
-                      "SELECT item_name, cost_per_unit_uah, meters_left, unit"
-                      " FROM inventory WHERE id = ?",
-                      (m_id,),
-                  )
-                  inv_res = cursor.fetchone()
-                  if inv_res:
-                    i_name_db, cost_per_unit, meters_left_db, unit_db = inv_res
-                    mat_cost += cost_per_unit * q_val
+                cursor.execute(
+                    "DELETE FROM appointment_inventory WHERE appointment_id = ?",
+                    (row["id"],),
+                )
+                car_info_str = (
+                    f"{row['car_brand']} {row['car_model']} ({row['car_number']})"
+                )
+
+                for sel_mat, q_val, mat_options in mat_rows_data:
+                  m_id = mat_options[sel_mat]
+                  if m_id and q_val > 0:
                     cursor.execute(
-                        """INSERT INTO appointment_inventory (appointment_id, inventory_id, qty_used) 
-                                       VALUES (?, ?, ?)""",
-                        (row["id"], m_id, q_val),
+                        "SELECT item_name, cost_per_unit_uah, meters_left, unit"
+                        " FROM inventory WHERE id = ?",
+                        (m_id,),
                     )
-                    if is_now_done:
-                      new_meters_left = round(meters_left_db - q_val, 2)
+                    inv_res = cursor.fetchone()
+                    if inv_res:
+                      i_name_db, cost_per_unit, meters_left_db, unit_db = inv_res
+                      mat_cost += cost_per_unit * q_val
                       cursor.execute(
-                          "UPDATE inventory SET meters_left = ? WHERE id = ?",
-                          (new_meters_left, m_id),
+                          """INSERT INTO appointment_inventory (appointment_id, inventory_id, qty_used) 
+                                         VALUES (?, ?, ?)""",
+                          (row["id"], m_id, q_val),
                       )
-                      cursor.execute(
-                          """INSERT INTO inventory_log (date, item_name, car_info, qty_used, unit, meters_left_after) 
-                                         VALUES (?, ?, ?, ?, ?, ?)""",
-                          (
-                              today_str,
-                              i_name_db,
-                              car_info_str,
-                              q_val,
-                              unit_db,
-                              new_meters_left,
-                          ),
-                      )
+                      if is_now_done:
+                        new_meters_left = round(meters_left_db - q_val, 2)
+                        cursor.execute(
+                            "UPDATE inventory SET meters_left = ? WHERE id = ?",
+                            (new_meters_left, m_id),
+                        )
+                        cursor.execute(
+                            """INSERT INTO inventory_log (date, item_name, car_info, qty_used, unit, meters_left_after) 
+                                           VALUES (?, ?, ?, ?, ?, ?)""",
+                            (
+                                today_str,
+                                i_name_db,
+                                car_info_str,
+                                q_val,
+                                unit_db,
+                                new_meters_left,
+                            ),
+                        )
 
-              net_prof = final_price - mat_cost
-              cursor.execute(
-                  """UPDATE appointments SET status = ?, date = ?, time = ?, final_price = ?, payment_type = ?, 
-                                         material_cost = ?, net_profit = ?, comment = ? 
-                             WHERE id = ?""",
-                  (
-                      new_status,
-                      str(new_work_date),
-                      str(new_work_time),
-                      final_price,
-                      payment_type,
-                      mat_cost,
-                      net_prof,
-                      comment,
-                      row["id"],
-                  ),
-              )
-              if ph_before_list:
-                for file in ph_before_list:
-                  cursor.execute(
-                      """INSERT INTO appointment_photos (appointment_id, photo_type, photo_blob) 
-                                     VALUES (?, 'before', ?)""",
-                      (row["id"], file.getvalue()),
-                  )
-              if ph_after_list:
-                for file in ph_after_list:
-                  cursor.execute(
-                      """INSERT INTO appointment_photos (appointment_id, photo_type, photo_blob) 
-                                     VALUES (?, 'after', ?)""",
-                      (row["id"], file.getvalue()),
-                  )
-              conn.commit()
-              conn.close()
-              trigger_auto_backup()
-              st.success("✅ Зміни успішно збережено!")
-              st.rerun()
+                net_prof = final_price - mat_cost
+                cursor.execute(
+                    """UPDATE appointments SET status = ?, date = ?, time = ?, final_price = ?, payment_type = ?, 
+                                           material_cost = ?, net_profit = ?, comment = ? 
+                               WHERE id = ?""",
+                    (
+                        new_status,
+                        str(new_work_date),
+                        str(new_work_time),
+                        final_price,
+                        payment_type,
+                        mat_cost,
+                        net_prof,
+                        comment,
+                        row["id"],
+                    ),
+                )
+                if ph_before_list:
+                  for file in ph_before_list:
+                    cursor.execute(
+                        """INSERT INTO appointment_photos (appointment_id, photo_type, photo_blob) 
+                                       VALUES (?, 'before', ?)""",
+                        (row["id"], file.getvalue()),
+                    )
+                if ph_after_list:
+                  for file in ph_after_list:
+                    cursor.execute(
+                        """INSERT INTO appointment_photos (appointment_id, photo_type, photo_blob) 
+                                       VALUES (?, 'after', ?)""",
+                        (row["id"], file.getvalue()),
+                    )
+                conn.commit()
+                conn.close()
+                trigger_auto_backup()
+                st.success("✅ Зміни успішно збережено!")
+                st.rerun()
     else:
       st.info("Поки немає активних записів.")
 
@@ -592,12 +615,14 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
       car_number = st.text_input("Держ. номер")
       st.markdown("### 📅 Дата та час виконання робіт")
       work_date = st.date_input("На коли записати автомобіль", value=get_now_kyiv().date())
-      time = st.time_input("Час візиту", value=get_now_kyiv().time())
+      time = st.time_input("Час візиту (з 8:00 до 21:00)", value=get_now_kyiv().time())
       comment = st.text_area("Початковий коментар")
 
       submit_app = st.form_submit_button("Записати клієнта")
       if submit_app:
-        if c_name and car_brand:
+        if not (d_time(8, 0) <= time <= d_time(21, 0)):
+          st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
+        elif c_name and car_brand:
           conn = sqlite3.connect(DB_NAME)
           cursor = conn.cursor()
           cursor.execute("PRAGMA foreign_keys = ON;")
@@ -676,14 +701,19 @@ elif st.session_state["selected_menu"] == "📦 Склад":
               index=0 if row["category"] == "Плівка" else 1,
               key=f"inv_c_{row['id']}",
           )
-          i_width = st.number_input(
-              "Ширина рулону (см)",
-              step=0.1,
-              value=(
-                  float(row["width_cm"]) if pd.notna(row["width_cm"]) else 152.0
-              ),
-              key=f"inv_w_{row['id']}",
-          )
+          
+          # Ширина рулону потрібна лише якщо це Плівка
+          i_width = float(row["width_cm"]) if pd.notna(row["width_cm"]) else 0.0
+          if i_cat == "Плівка":
+            i_width = st.number_input(
+                "Ширина рулону (см)",
+                step=0.1,
+                value=i_width if i_width > 0 else 152.0,
+                key=f"inv_w_{row['id']}",
+            )
+          else:
+            i_width = 0.0
+
           i_meters = st.number_input(
               "Залишок",
               step=0.1,
@@ -761,11 +791,16 @@ elif st.session_state["selected_menu"] == "📦 Склад":
 
   with tab2:
     with st.form("add_inventory_form", clear_on_submit=True):
-      item_name = st.text_input("Назва (наприклад, LLumar ATR 15)")
+      item_name = st.text_input("Назва (наприклад, LLumar ATR 15 або Серветки)")
       category = st.selectbox("Категорія", ["Плівка", "Розхідник/Хімія"])
-      width_cm = st.number_input(
-          "Ширина рулону (см, якщо плівка)", step=0.1, value=152.0
-      )
+      
+      # Якщо категорія Плівка — запитуємо ширину, якщо Розхідник — ширина не потрібна
+      width_cm = 0.0
+      if category == "Плівка":
+        width_cm = st.number_input(
+            "Ширина рулону (см)", step=0.1, value=152.0
+        )
+
       meters_left = st.number_input("Кількість (метрів або штук)", step=0.1, value=30.0)
       min_limit = st.number_input("Критичний ліміт попередження", step=0.1, value=5.0)
       price_usd = st.number_input("Ціна за одиницю в доларах ($)", step=0.5, value=15.0)
@@ -1047,7 +1082,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                 ed_time_obj = get_now_kyiv().time()
 
             ed_date = st.date_input("Дата виконання", value=ed_date_obj, key=f"ed_date_{a_row['id']}")
-            ed_time = st.time_input("Час виконання", value=ed_time_obj, key=f"ed_time_{a_row['id']}")
+            ed_time = st.time_input("Час виконання (з 8:00 до 21:00)", value=ed_time_obj, key=f"ed_time_{a_row['id']}")
 
             ed_price = st.number_input(
                 "Фінальна ціна (грн)",
@@ -1090,27 +1125,30 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               )
 
             if save_btn:
-              run_query(
-                  """UPDATE appointments SET client_name = ?, client_phone = ?, car_brand = ?, 
-                                         car_model = ?, car_number = ?, date = ?, time = ?, final_price = ?, 
-                                         payment_type = ?, status = ? WHERE id = ?""",
-                  (
-                      ed_client,
-                      ed_phone,
-                      ed_brand,
-                      ed_model,
-                      ed_num,
-                      str(ed_date),
-                      str(ed_time),
-                      ed_price,
-                      ed_pay,
-                      ed_status,
-                      a_row["id"],
-                  ),
-                  fetch=False,
-              )
-              st.success("✅ Запис успішно оновлено!")
-              st.rerun()
+              if not (d_time(8, 0) <= ed_time <= d_time(21, 0)):
+                st.error("❌ Час виконання робіт має бути в межах з 8:00 до 21:00!")
+              else:
+                run_query(
+                    """UPDATE appointments SET client_name = ?, client_phone = ?, car_brand = ?, 
+                                           car_model = ?, car_number = ?, date = ?, time = ?, final_price = ?, 
+                                           payment_type = ?, status = ? WHERE id = ?""",
+                    (
+                        ed_client,
+                        ed_phone,
+                        ed_brand,
+                        ed_model,
+                        ed_num,
+                        str(ed_date),
+                        str(ed_time),
+                        ed_price,
+                        ed_pay,
+                        ed_status,
+                        a_row["id"],
+                    ),
+                    fetch=False,
+                )
+                st.success("✅ Запис успішно оновлено!")
+                st.rerun()
 
             if del_btn:
               run_query(
