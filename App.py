@@ -1,4 +1,3 @@
-
 from datetime import datetime
 import os
 import sqlite3
@@ -317,7 +316,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             if not a_photos.empty:
               st.write("**Фото ПІСЛЯ:**")
               cols = st.columns(3)
-              for i, (_, p_row) in enumerate(a_photos.iterrows():
+              for i, (_, p_row) in enumerate(a_photos.iterrows()):
                 with cols[i % 3]:
                   st.image(p_row["photo_blob"], use_column_width=True)
 
