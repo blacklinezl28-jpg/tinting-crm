@@ -44,14 +44,20 @@ def init_connection():
         st.error(f"Помилка підключення до бази даних Supabase: {e}")
         return None
 
-conn = init_connection()
-
 def run_query(query, params=(), fetch=True):
-    global conn
+    # Створюємо з'єднання всередині функції або беремо кешоване
+    conn = init_connection()
+    if conn is None:
+        return pd.DataFrame()
+    
     try:
-        # Перевірка з'єднання
-        if conn is None or conn.closed != 0:
+        # Перевірка з'єднання на випадок обриву
+        if conn.closed != 0:
+            st.cache_resource.clear()
             conn = init_connection()
+            if conn is None:
+                return pd.DataFrame()
+
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(query, params or ())
             if fetch:
@@ -64,7 +70,10 @@ def run_query(query, params=(), fetch=True):
                 conn.commit()
     except Exception as e:
         if conn:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except:
+                pass
         st.error(f"Помилка бази даних: {e}")
         return pd.DataFrame()
 
@@ -78,7 +87,6 @@ def check_password():
         entered_password = st.text_input("Пароль доступу", type="password")
         
         if st.button("Увійти"):
-            # Отримуємо пароль із захищених секретів Streamlit
             real_password = st.secrets["auth"]["system_password"]
             
             if entered_password == real_password:
@@ -183,7 +191,6 @@ def init_db():
     );
     """, fetch=False)
 
-    # Таблиця для запам'ятовування середньої витрати плівки на модель авто
     run_query("""
     CREATE TABLE IF NOT EXISTS film_usage (
         id SERIAL PRIMARY KEY,
@@ -257,7 +264,6 @@ def format_time_str(t_raw):
   except:
     return str(t_raw)
 
-# Функції для запам'ятовування плівки на авто
 def get_saved_film_meters(car_model):
     if not car_model:
         return 3.0
@@ -468,14 +474,14 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               cols = st.columns(3)
               for i, (_, p_row) in enumerate(b_photos.iterrows()):
                 with cols[i % 3]:
-                  st.image(p_row["photo_blob"], use_container_width=True)
+                  st.image(p_row["photo_blob"], use_column_width=True)
 
             if not a_photos.empty:
               st.write("**Фото ПІСЛЯ:**")
               cols = st.columns(3)
               for i, (_, p_row) in enumerate(a_photos.iterrows()):
                 with cols[i % 3]:
-                  st.image(p_row["photo_blob"], use_container_width=True)
+                  st.image(p_row["photo_blob"], use_column_width=True)
 
           st.markdown("---")
           with st.form(f"update_app_form_{row['id']}"):
@@ -555,7 +561,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             if f"mat_count_{row['id']}" not in st.session_state:
               st.session_state[f"mat_count_{row['id']}"] = 1
 
-            # Автопідтягування рекомендованого метражу плівки для цього авто
             default_meters_auto = get_saved_film_meters(row['car_model'])
 
             st.markdown(
@@ -652,7 +657,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 mat_cost = 0.0
                 is_now_done = (new_status == "Виконано" and row["status"] != "Виконано")
                 
-                # Видаляємо старі зв'язки послуг та матеріалів перед оновленням
                 run_query("DELETE FROM appointment_services WHERE appointment_id = %s", (row["id"],), fetch=False)
                 for s_id_upd in updated_selected_services:
                   run_query("INSERT INTO appointment_services (appointment_id, service_id) VALUES (%s, %s)", (row["id"], s_id_upd), fetch=False)
@@ -662,7 +666,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                 
                 car_info_str = f"{row['car_brand']} {row['car_model']} ({row['car_number']})"
 
-                # Запам'ятовуємо метраж плівки для конкретної моделі авто
                 for sel_mat, q_val, mat_options in mat_rows_data:
                   m_id = mat_options[sel_mat]
                   if m_id and q_val > 0:
@@ -679,7 +682,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
                           (row["id"], m_id, q_val), fetch=False
                       )
                       
-                      # Якщо вказували метри для плівки, зберігаємо для авто
                       save_film_meters(row['car_model'], q_val)
 
                       if is_now_done:
@@ -1060,13 +1062,13 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                   cols = st.columns(3)
                   for i, (_, pr) in enumerate(b_ph.iterrows()):
                     with cols[i % 3]:
-                      st.image(pr["photo_blob"], use_container_width=True)
+                      st.image(pr["photo_blob"], use_column_width=True)
                 if not a_ph.empty:
                   st.write("**Фото ПІСЛЯ:**")
                   cols = st.columns(3)
                   for i, (_, pr) in enumerate(a_ph.iterrows()):
                     with cols[i % 3]:
-                      st.image(pr["photo_blob"], use_container_width=True)
+                      st.image(pr["photo_blob"], use_column_width=True)
     else:
       st.info("Клієнтів не знайдено.")
 
@@ -1169,13 +1171,13 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               cols = st.columns(3)
               for i, (_, pr) in enumerate(b_ph.iterrows()):
                 with cols[i % 3]:
-                  st.image(pr["photo_blob"], use_container_width=True)
+                  st.image(pr["photo_blob"], use_column_width=True)
             if not a_ph.empty:
               st.write("**Фото ПІСЛЯ:**")
               cols = st.columns(3)
               for i, (_, pr) in enumerate(a_ph.iterrows()):
                 with cols[i % 3]:
-                  st.image(pr["photo_blob"], use_container_width=True)
+                  st.image(pr["photo_blob"], use_column_width=True)
     else:
       st.info("Нічого не знайдено.")
 
@@ -1307,7 +1309,6 @@ elif st.session_state["selected_menu"] == "💾 Бекап та Відновле
       "👥 Нумерована таблиця клієнтів"
   ])
   
-  # --- ВКЛАДКА 1: ЕКСПОРТ (БЕКАП) ---
   with tab_bk1:
     st.subheader("Створення повного бекапу бази даних")
     st.write("Натисніть кнопку нижче, щоб сформувати файл із поточними даними всіх таблиць системи.")
@@ -1340,12 +1341,9 @@ elif st.session_state["selected_menu"] == "💾 Бекап та Відновле
         except Exception as e:
             st.error(f"Помилка при створенні бекапу: {e}")
 
-  # --- ВКЛАДКА 2: ВІДНОВЛЕННЯ (РЕСТОР) ---
   with tab_bk2:
     st.subheader("Відновлення даних із файлу бекапу")
-    st.warning(
-        "⚠️ **УВАГА!** Ця функція читає дані з раніше збереженого файлу .json."
-    )
+    st.warning("⚠️ **УВАГА!** Ця функція читає дані з раніше збереженого файлу .json.")
     
     uploaded_backup_file = st.file_uploader("Виберіть файл бекапу (.json)", type=["json"])
     
@@ -1354,15 +1352,13 @@ elif st.session_state["selected_menu"] == "💾 Бекап та Відновле
             try:
                 bytes_data = uploaded_backup_file.getvalue()
                 backup_content = json.loads(bytes_data.decode("utf-8"))
-                
                 st.success("✅ Структуру та дані з файлу бекапу прочитано! База готова до роботи.")
             except Exception as e:
-                st.error(f"Помилка при відновленні даних: {e}")
+                st.error(f5"Помилка при відновленні даних: {e}")
 
-  # --- ВКЛАДКА 3: НУМЕРОВАНА ТАБЛИЦЯ КЛІЄНТІВ (ДЛЯ СЕБЕ) ---
   with tab_bk3:
     st.subheader("📋 Зведена нумерована таблиця клієнтів")
-    st.write("Тут зібрані всі ваші клієнти із загальною нумерацією, кількістю заїздів та іншими даними. Для зручності ви можете завантажити її окремо.")
+    st.write("Тут зібрані всі ваші клієнти із загальною нумерацією, кількістю заїздів та іншими даними.")
     
     try:
         df_clients = run_query("""
@@ -1387,7 +1383,7 @@ elif st.session_state["selected_menu"] == "💾 Бекап та Відновле
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_clients.to_excel(writer, sheet_name='Clients_List', index=True)
+                df_clients.to_excel(writer, sheet_name='Clients_List', index=`True`)
             excel_data = output.getvalue()
             
             st.download_button(
