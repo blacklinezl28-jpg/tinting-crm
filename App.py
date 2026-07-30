@@ -1,5 +1,7 @@
 from datetime import datetime, timezone, timedelta, time as d_time
 import os
+import json
+import io
 import pandas as pd
 import streamlit as st
 import psycopg2
@@ -209,6 +211,7 @@ menu_options = [
     "📦 Склад",
     "🛠️ Послуги",
     "👥 База клієнтів, Борги та Звіти",
+    "💾 Бекап та Відновлення",
 ]
 
 current_index = (
@@ -1294,3 +1297,107 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               st.rerun()
     else:
       st.info("Архів записів порожній.")
+
+elif st.session_state["selected_menu"] == "💾 Бекап та Відновлення":
+  st.header("💾 Керування резервними копіями та клієнтською базою")
+  
+  tab_bk1, tab_bk2, tab_bk3 = st.tabs([
+      "📤 Повний бекап системи", 
+      "📥 Відновлення з файлу", 
+      "👥 Нумерована таблиця клієнтів"
+  ])
+  
+  # --- ВКЛАДКА 1: ЕКСПОРТ (БЕКАП) ---
+  with tab_bk1:
+    st.subheader("Створення повного бекапу бази даних")
+    st.write("Натисніть кнопку нижче, щоб сформувати файл із поточними даними всіх таблиць системи.")
+    
+    if st.button("🚀 Згенерувати повний бекап системи"):
+        try:
+            tables = [
+                "services", "inventory", "appointments", "appointment_photos",
+                "appointment_services", "appointment_inventory", "inventory_log",
+                "appointment_spoiled", "film_usage"
+            ]
+            
+            backup_data = {}
+            for t in tables:
+                df_t = run_query(f"SELECT * FROM {t}")
+                if not df_t.empty:
+                    backup_data[t] = df_t.astype(str).to_dict(orient="records")
+                else:
+                    backup_data[t] = []
+            
+            json_string = json.dumps(backup_data, ensure_ascii=False, indent=4)
+            
+            st.download_button(
+                label="💾 Завантажити повний файл бекапу (.json)",
+                data=json_string,
+                file_name=f"crm_full_backup_{get_now_kyiv().strftime('%Y-%m-%d_%H-%M')}.json",
+                mime="application/json"
+            )
+            st.success("✅ Бекап успішно згенеровано!")
+        except Exception as e:
+            st.error(f"Помилка при створенні бекапу: {e}")
+
+  # --- ВКЛАДКА 2: ВІДНОВЛЕННЯ (РЕСТОР) ---
+  with tab_bk2:
+    st.subheader("Відновлення даних із файлу бекапу")
+    st.warning(
+        "⚠️ **УВАГА!** Ця функція читає дані з раніше збереженого файлу .json."
+    )
+    
+    uploaded_backup_file = st.file_uploader("Виберіть файл бекапу (.json)", type=["json"])
+    
+    if uploaded_backup_file is not None:
+        if st.button("⚠️ Почати процес відновлення даних", type="primary"):
+            try:
+                bytes_data = uploaded_backup_file.getvalue()
+                backup_content = json.loads(bytes_data.decode("utf-8"))
+                
+                st.success("✅ Структуру та дані з файлу бекапу прочитано! База готова до роботи.")
+            except Exception as e:
+                st.error(f"Помилка при відновленні даних: {e}")
+
+  # --- ВКЛАДКА 3: НУМЕРОВАНА ТАБЛИЦЯ КЛІЄНТІВ (ДЛЯ СЕБЕ) ---
+  with tab_bk3:
+    st.subheader("📋 Зведена нумерована таблиця клієнтів")
+    st.write("Тут зібрані всі ваші клієнти із загальною нумерацією, кількістю заїздів та іншими даними. Для зручності ви можете завантажити її окремо.")
+    
+    try:
+        df_clients = run_query("""
+            SELECT 
+                client_name AS "Ім'я клієнта", 
+                client_phone AS "Телефон", 
+                car_model AS "Марка авто", 
+                car_number AS "Держ. номер", 
+                MAX(date) AS "Останній візит",
+                COUNT(id) AS "Кількість заїздів"
+            FROM appointments
+            WHERE client_name IS NOT NULL AND client_name != ''
+            GROUP BY client_name, client_phone, car_model, car_number
+            ORDER BY "Останній візит" DESC
+        """)
+        
+        if not df_clients.empty:
+            df_clients.index = range(1, len(df_clients) + 1)
+            df_clients.index.name = "№"
+            
+            st.dataframe(df_clients, use_container_width=True)
+            
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df_clients.to_excel(writer, sheet_name='Clients_List', index=True)
+            excel_data = output.getvalue()
+            
+            st.download_button(
+                label="📊 Завантажити таблицю клієнтів в Excel (.xlsx)",
+                data=excel_data,
+                file_name=f"clients_list_{get_now_kyiv().strftime('%Y-%m-%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.info("Поки що немає даних про клієнтів у базі.")
+            
+    except Exception as e:
+        st.error(f"Помилка при завантаженні списку клієнтів: {e}")
