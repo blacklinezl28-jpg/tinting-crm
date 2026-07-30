@@ -26,12 +26,18 @@ KYIV_TZ = timezone(timedelta(hours=3))
 def get_now_kyiv():
     return datetime.now(KYIV_TZ)
 
-# Підключення до Supabase PostgreSQL через Streamlit Secrets
+# Підключення до Supabase PostgreSQL через Streamlit Secrets з виправленими параметрами
 @st.cache_resource
 def init_connection():
     try:
-        db_url = st.secrets["DATABASE_URL"]
-        return psycopg2.connect(db_url, sslmode="require")
+        return psycopg2.connect(
+            host="aws-0-eu-central-1.pooler.supabase.com",
+            database="postgres",
+            user="postgres.bpwnaspgfdfklvvpjzya",
+            password="Blacklinezl2399!",
+            port="6543",
+            sslmode="require"
+        )
     except Exception as e:
         st.error(f"Помилка підключення до бази даних Supabase: {e}")
         return None
