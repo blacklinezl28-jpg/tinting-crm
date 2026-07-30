@@ -66,23 +66,26 @@ def run_query(query, params=(), fetch=True):
         st.error(f"Помилка бази даних: {e}")
         return pd.DataFrame()
 
-SYSTEM_PASSWORD = "blzl"
-
 
 def check_password():
-  if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-  if not st.session_state["authenticated"]:
-    st.title("🔒 Авторизація в CRM-системі")
-    entered_password = st.text_input("Пароль доступу", type="password")
-    if st.button("Увійти"):
-      if entered_password == SYSTEM_PASSWORD:
-        st.session_state["authenticated"] = True
-        st.rerun()
-      else:
-        st.error("Невірний пароль!")
-    return False
-  return True
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+    
+    if not st.session_state["authenticated"]:
+        st.title("🔒 Авторизація в CRM-системі")
+        entered_password = st.text_input("Пароль доступу", type="password")
+        
+        if st.button("Увійти"):
+            # Отримуємо пароль із захищених секретів Streamlit
+            real_password = st.secrets["auth"]["system_password"]
+            
+            if entered_password == real_password:
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Невірний пароль!")
+        return False
+    return True
 
 if not check_password():
   st.stop()
