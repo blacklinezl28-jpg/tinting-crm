@@ -45,13 +45,11 @@ def init_connection():
         return None
 
 def run_query(query, params=(), fetch=True):
-    # Створюємо з'єднання всередині функції або беремо кешоване
     conn = init_connection()
     if conn is None:
         return pd.DataFrame()
     
     try:
-        # Перевірка з'єднання на випадок обриву
         if conn.closed != 0:
             st.cache_resource.clear()
             conn = init_connection()
@@ -1354,7 +1352,7 @@ elif st.session_state["selected_menu"] == "💾 Бекап та Відновле
                 backup_content = json.loads(bytes_data.decode("utf-8"))
                 st.success("✅ Структуру та дані з файлу бекапу прочитано! База готова до роботи.")
             except Exception as e:
-                st.error(f5"Помилка при відновленні даних: {e}")
+                st.error(f"Помилка при відновленні даних: {e}")
 
   with tab_bk3:
     st.subheader("📋 Зведена нумерована таблиця клієнтів")
@@ -1383,7 +1381,7 @@ elif st.session_state["selected_menu"] == "💾 Бекап та Відновле
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_clients.to_excel(writer, sheet_name='Clients_List', index=`True`)
+                df_clients.to_excel(writer, sheet_name='Clients_List', index=True)
             excel_data = output.getvalue()
             
             st.download_button(
