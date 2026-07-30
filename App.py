@@ -472,14 +472,14 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               cols = st.columns(3)
               for i, (_, p_row) in enumerate(b_photos.iterrows()):
                 with cols[i % 3]:
-                  st.image(p_row["photo_blob"], use_column_width=True)
+                  st.image(p_row["photo_blob"], use_container_width=True)
 
             if not a_photos.empty:
               st.write("**Фото ПІСЛЯ:**")
               cols = st.columns(3)
               for i, (_, p_row) in enumerate(a_photos.iterrows()):
                 with cols[i % 3]:
-                  st.image(p_row["photo_blob"], use_column_width=True)
+                  st.image(p_row["photo_blob"], use_container_width=True)
 
           st.markdown("---")
           with st.form(f"update_app_form_{row['id']}"):
@@ -1060,13 +1060,13 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                   cols = st.columns(3)
                   for i, (_, pr) in enumerate(b_ph.iterrows()):
                     with cols[i % 3]:
-                      st.image(pr["photo_blob"], use_column_width=True)
+                      st.image(pr["photo_blob"], use_container_width=True)
                 if not a_ph.empty:
                   st.write("**Фото ПІСЛЯ:**")
                   cols = st.columns(3)
                   for i, (_, pr) in enumerate(a_ph.iterrows()):
                     with cols[i % 3]:
-                      st.image(pr["photo_blob"], use_column_width=True)
+                      st.image(pr["photo_blob"], use_container_width=True)
     else:
       st.info("Клієнтів не знайдено.")
 
@@ -1169,13 +1169,13 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               cols = st.columns(3)
               for i, (_, pr) in enumerate(b_ph.iterrows()):
                 with cols[i % 3]:
-                  st.image(pr["photo_blob"], use_column_width=True)
+                  st.image(pr["photo_blob"], use_container_width=True)
             if not a_ph.empty:
               st.write("**Фото ПІСЛЯ:**")
               cols = st.columns(3)
               for i, (_, pr) in enumerate(a_ph.iterrows()):
                 with cols[i % 3]:
-                  st.image(pr["photo_blob"], use_column_width=True)
+                  st.image(pr["photo_blob"], use_container_width=True)
     else:
       st.info("Нічого не знайдено.")
 
