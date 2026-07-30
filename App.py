@@ -11,7 +11,6 @@ st.set_page_config(
     page_title="Detailing & Tinting CRM Pro", page_icon="🚗", layout="wide"
 )
 
-# Стиль для зміни кольору будь-якої кнопки при натисканні (активі, кліку)
 st.markdown("""
     <style>
     div.stButton > button:active, div.stFormSubmitButton > button:active {
@@ -22,13 +21,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Київський часовий пояс
 KYIV_TZ = timezone(timedelta(hours=3))
 
 def get_now_kyiv():
     return datetime.now(KYIV_TZ)
 
-# Підключення до Supabase PostgreSQL через захищені Streamlit Secrets
 @st.cache_resource
 def init_connection():
     try:
@@ -472,14 +469,14 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               cols = st.columns(3)
               for i, (_, p_row) in enumerate(b_photos.iterrows()):
                 with cols[i % 3]:
-                  st.image(p_row["photo_blob"], use_container_width=True)
+                  st.image(io.BytesIO(p_row["photo_blob"]), use_container_width=True)
 
             if not a_photos.empty:
               st.write("**Фото ПІСЛЯ:**")
               cols = st.columns(3)
               for i, (_, p_row) in enumerate(a_photos.iterrows()):
                 with cols[i % 3]:
-                  st.image(p_row["photo_blob"], use_container_width=True)
+                  st.image(io.BytesIO(p_row["photo_blob"]), use_container_width=True)
 
           st.markdown("---")
           with st.form(f"update_app_form_{row['id']}"):
@@ -1060,13 +1057,13 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
                   cols = st.columns(3)
                   for i, (_, pr) in enumerate(b_ph.iterrows()):
                     with cols[i % 3]:
-                      st.image(pr["photo_blob"], use_container_width=True)
+                      st.image(io.BytesIO(pr["photo_blob"]), use_container_width=True)
                 if not a_ph.empty:
                   st.write("**Фото ПІСЛЯ:**")
                   cols = st.columns(3)
                   for i, (_, pr) in enumerate(a_ph.iterrows()):
                     with cols[i % 3]:
-                      st.image(pr["photo_blob"], use_container_width=True)
+                      st.image(io.BytesIO(pr["photo_blob"]), use_container_width=True)
     else:
       st.info("Клієнтів не знайдено.")
 
@@ -1169,13 +1166,13 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               cols = st.columns(3)
               for i, (_, pr) in enumerate(b_ph.iterrows()):
                 with cols[i % 3]:
-                  st.image(pr["photo_blob"], use_container_width=True)
+                  st.image(io.BytesIO(pr["photo_blob"]), use_container_width=True)
             if not a_ph.empty:
               st.write("**Фото ПІСЛЯ:**")
               cols = st.columns(3)
               for i, (_, pr) in enumerate(a_ph.iterrows()):
                 with cols[i % 3]:
-                  st.image(pr["photo_blob"], use_container_width=True)
+                  st.image(io.BytesIO(pr["photo_blob"]), use_container_width=True)
     else:
       st.info("Нічого не знайдено.")
 
