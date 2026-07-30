@@ -703,7 +703,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
 
                 net_prof = final_price - mat_cost
                 run_query(
-                    """UPDATE appointments SET status = %s, date = %s, time = %s, final_price = %s, payment_type = ?, 
+                    """UPDATE appointments SET status = %s, date = %s, time = %s, final_price = %s, payment_type = %s, 
                                            material_cost = %s, net_profit = %s, comment = %s 
                                WHERE id = %s""",
                     (new_status, str(new_work_date), str(new_work_time), final_price, payment_type, mat_cost, net_prof, comment, row["id"]),
@@ -763,7 +763,6 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
         elif c_name and car_brand:
           created_at_str = get_now_kyiv().strftime("%Y-%m-%d %H:%M:%S")
           
-          # Отримуємо ID новоствореного запису в PostgreSQL через RETURNING id
           res_id = run_query(
               """INSERT INTO appointments (client_name, client_phone, car_brand, car_model, car_number, 
                                            created_at, date, time, status, final_price, material_cost, net_profit, comment) 
