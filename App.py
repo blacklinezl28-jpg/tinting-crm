@@ -34,7 +34,7 @@ def init_connection():
             host="aws-0-eu-central-1.pooler.supabase.com",
             database="postgres",
             user="postgres.bpwnaspgfdfklvvpjzya",
-            password="Blacklinezl2399!",
+            password="Blacklinezl2399",
             port="6543",
             sslmode="require"
         )
