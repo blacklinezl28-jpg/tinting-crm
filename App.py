@@ -237,9 +237,19 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
 
     m_col4, m_col5 = st.columns(2)
     with m_col4:
-        st.metric("🚗 Виконано авто", f"{int(cars_month_count)} шт")
+        st.metric("🚗 Виконано авто", f"{int(cars_month_count)}")
     with m_col5:
-        st.metric("📌 Всього в черзі", f"{int(total_queue_count)} шт")
+        st.metric("📌 Всього в черзі", f"{int(total_queue_count)}")
+
+    st.markdown("---")
+    st.subheader("⏰ Найближчий запис")
+    next_app = run_query("SELECT * FROM appointments WHERE status = 'Очікує' ORDER BY date ASC, time ASC LIMIT 1")
+    if not next_app.empty:
+        row = next_app.iloc[0]
+        formatted_time = format_time_str(row['time'])
+        st.success(f"📅 **Дата виконання робіт:** {row['date']} о {formatted_time}\n\n🚗 **Автомобіль:** {row['car_brand']} {row['car_model']} ({row['car_number']})\n\n👤 **Клієнт:** {row['client_name']} ({row['client_phone']})")
+    else:
+        st.info("Наразі немає найближчих записів у статусі «Очікує».")
 
     st.markdown("---")
     st.subheader("📅 Календар завантаженості (Активні записи)")
@@ -263,16 +273,6 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
             st.rerun()
     else:
         st.info("Наразі немає запланованих записів у черзі.")
-
-    st.markdown("---")
-    st.subheader("⏰ Найближчий запис")
-    next_app = run_query("SELECT * FROM appointments WHERE status = 'Очікує' ORDER BY date ASC, time ASC LIMIT 1")
-    if not next_app.empty:
-        row = next_app.iloc[0]
-        formatted_time = format_time_str(row['time'])
-        st.success(f"📅 **Дата виконання робіт:** {row['date']} о {formatted_time}\n\n🚗 **Автомобіль:** {row['car_brand']} {row['car_model']} ({row['car_number']})\n\n👤 **Клієнт:** {row['client_name']} ({row['client_phone']})")
-    else:
-        st.info("Наразі немає найближчих записів у статусі «Очікує».")
 
 elif st.session_state["selected_menu"] == "📅 Записати клієнта / Записи":
     st.header("📅 Журнал записів")
@@ -650,7 +650,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
             period_spoiled_cost = sp_rep_df["per_spoiled"].iloc[0] if not sp_rep_df.empty and pd.notna(sp_rep_df["per_spoiled"].iloc[0]) else 0.0
 
             col_m1, col_m2 = st.columns(2)
-            col_m1.metric("Виконано авто", f"{len(done_rep)} шт")
+            col_m1.metric("Виконано авто", f"{len(done_rep)}")
             col_m2.metric("Загальний дохід", f"{int(done_rep['final_price'].sum()):,} грн".replace(",", " "))
 
             col_m3, col_m4 = st.columns(2)
