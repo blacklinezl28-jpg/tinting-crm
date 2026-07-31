@@ -277,6 +277,12 @@ def save_film_meters(car_model, meters):
         DO UPDATE SET avg_meters = EXCLUDED.avg_meters;
     """, (car_model.strip(), meters), fetch=False)
 
+def get_safe_default_time():
+    now_t = get_now_kyiv().time()
+    if now_t < d_time(7, 0):
+        return d_time(7, 0)
+    return now_t
+
 if st.session_state["selected_menu"] == "🏠 Інформаційна панель":
   st.header("🏠 Інформаційна панель")
 
@@ -319,7 +325,7 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
   )
 
   total_queue_df = run_query(
-      "SELECT COUNT(*) as total_queue FROM appointments WHERE status != 'Скасовано'"
+      "SELECT COUNT(*) as total_queue FROM appointments WHERE status = 'Очікує'"
   )
   total_queue_count = (
       total_queue_df["total_queue"].iloc[0]
@@ -504,7 +510,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
               try:
                 cur_time_obj = datetime.strptime(str(row["time"]), "%H:%M").time()
               except:
-                cur_time_obj = get_now_kyiv().time()
+                cur_time_obj = get_safe_default_time()
 
             new_work_date = st.date_input("Дата виконання робіт", value=cur_date_obj, key=f"upd_date_{row['id']}")
             new_work_time = st.time_input("Час виконання робіт (з 07:00 по 22:00)", value=cur_time_obj, key=f"upd_time_{row['id']}")
@@ -762,7 +768,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
       car_number = st.text_input("Держ. номер")
       st.markdown("### 📅 Дата та час виконання робіт")
       work_date = st.date_input("На коли записати автомобіль", value=get_now_kyiv().date())
-      time = st.time_input("Час візиту (з 07:00 по 22:00)", value=get_now_kyiv().time())
+      time = st.time_input("Час візиту (з 07:00 по 22:00)", value=get_safe_default_time())
       comment = st.text_area("Початковий коментар")
 
       submit_app = st.form_submit_button("Записати клієнта")
@@ -1243,7 +1249,7 @@ elif st.session_state["selected_menu"] == "👥 База клієнтів, Бо�
               try:
                 ed_time_obj = datetime.strptime(str(a_row["time"]), "%H:%M").time()
               except:
-                ed_time_obj = get_now_kyiv().time()
+                ed_time_obj = get_safe_default_time()
 
             ed_date = st.date_input("Дата виконання", value=ed_date_obj, key=f"ed_date_{a_row['id']}")
             ed_time = st.time_input("Час виконання (з 07:00 по 22:00)", value=ed_time_obj, key=f"ed_time_{a_row['id']}")
