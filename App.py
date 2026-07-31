@@ -242,15 +242,35 @@ if st.session_state["selected_menu"] == "🏠 Інформаційна пане�
         st.metric("📌 Всього в черзі", f"{int(total_queue_count)} шт")
 
     st.markdown("---")
+    st.subheader("📅 Календар завантаженості (Активні записи)")
+    
+    all_active_apps = run_query("SELECT * FROM appointments WHERE status = 'Очікує' ORDER BY date ASC, time ASC")
+    if not all_active_apps.empty:
+        all_active_apps["date_obj"] = pd.to_datetime(all_active_apps["date"], errors="coerce").dt.date
+        unique_dates = sorted(all_active_apps["date_obj"].dropna().unique().tolist())
+        
+        cal_tabs = st.tabs([str(d) for d in unique_dates])
+        for tab_idx, d_val in enumerate(unique_dates):
+            with cal_tabs[tab_idx]:
+                day_apps = all_active_apps[all_active_apps["date_obj"] == d_val]
+                for _, d_row in day_apps.iterrows():
+                    f_t = format_time_str(d_row['time'])
+                    srvs_txt = get_services_str(d_row["id"])
+                    st.info(f"🕒 **Час:** {f_t} | 🚗 **Авто:** {d_row['car_brand']} {d_row['car_model']} ({d_row['car_number']}) | 👤 **Клієнт:** {d_row['client_name']} ({d_row['client_phone']}) | 🛠️ **Послуги:** {srvs_txt}")
+        
+        if st.button("👉 Перейти до редагування записів"):
+            st.session_state["selected_menu"] = "📅 Записати клієнта / Записи"
+            st.rerun()
+    else:
+        st.info("Наразі немає запланованих записів у черзі.")
+
+    st.markdown("---")
     st.subheader("⏰ Найближчий запис")
     next_app = run_query("SELECT * FROM appointments WHERE status = 'Очікує' ORDER BY date ASC, time ASC LIMIT 1")
     if not next_app.empty:
         row = next_app.iloc[0]
         formatted_time = format_time_str(row['time'])
         st.success(f"📅 **Дата виконання робіт:** {row['date']} о {formatted_time}\n\n🚗 **Автомобіль:** {row['car_brand']} {row['car_model']} ({row['car_number']})\n\n👤 **Клієнт:** {row['client_name']} ({row['client_phone']})")
-        if st.button("👉 Редагувати запис / Змінити статус"):
-            st.session_state["selected_menu"] = "📅 Записати клієнта / Записи"
-            st.rerun()
     else:
         st.info("Наразі немає найближчих записів у статусі «Очікує».")
 
@@ -457,7 +477,7 @@ elif st.session_state["selected_menu"] == "📅 Записати клієнта 
             c_name = st.text_input("Ім'я та Прізвище клієнта")
             c_phone = st.text_input("Номер телефону")
             car_brand = st.text_input("Марка авто (наприклад, Toyota)")
-            car_model = st.text_model = st.text_input("Модель (наприклад, Camry)") if 'car_model' not in locals() else st.text_input("Модель (наприклад, Camry)")
+            car_model = st.text_input("Модель (наприклад, Camry)")
             car_number = st.text_input("Держ. номер")
             st.markdown("### 📅 Дата та час виконання робіт")
             work_date = st.date_input("На коли записати автомобіль", value=get_now_kyiv().date())
