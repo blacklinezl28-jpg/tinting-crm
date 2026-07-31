@@ -1347,7 +1347,29 @@ elif st.session_state["selected_menu"] == "💾 Бекап та Відновле
             try:
                 bytes_data = uploaded_backup_file.getvalue()
                 backup_content = json.loads(bytes_data.decode("utf-8"))
-                st.success("✅ Структуру та дані з файлу бекапу прочитано! База готова до роботи.")
+                
+                tables = [
+                    "services", "inventory", "appointments", "appointment_photos",
+                    "appointment_services", "appointment_inventory", "inventory_log",
+                    "appointment_spoiled", "film_usage"
+                ]
+                
+                for table_name in tables:
+                    if table_name in backup_content:
+                        records = backup_content[table_name]
+                        if records and isinstance(records, list):
+                            run_query(f"DELETE FROM {table_name}", fetch=False)
+                            for rec in records:
+                                if isinstance(rec, dict) and rec:
+                                    cols = list(rec.keys())
+                                    vals = [None if str(v) == "nan" or v is None else v for v in rec.values()]
+                                    cols_str = ", ".join(cols)
+                                    placeholders = ", ".join(["%s"] * len(cols))
+                                    query_insert = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"
+                                    run_query(query_insert, tuple(vals), fetch=False)
+                                    
+                trigger_auto_backup()
+                st.success("✅ Базу даних успішно відновлено з файлу бекапу!")
             except Exception as e:
                 st.error(f"Помилка при відновленні даних: {e}")
 
