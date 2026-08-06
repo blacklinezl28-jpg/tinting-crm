@@ -227,11 +227,14 @@ async def appointment_detail(request: Request, app_id: int):
         raise HTTPException(status_code=404, detail="Запис не знайдено")
     
     inventory = run_query("SELECT * FROM inventory")
+    # Додаємо отримання фото для сторінки
+    photos = run_query("SELECT id, photo_type FROM appointment_photos WHERE appointment_id = %s", (app_id,))
     
     return templates.TemplateResponse(request, "appointment_detail.html", {
         "request": request, 
         "app": app[0],
-        "inventory": inventory
+        "inventory": inventory,
+        "photos": photos
     })
 
 @app.post("/appointment/{app_id}/use_material")
@@ -253,3 +256,22 @@ async def add_spoiled(app_id: int, inventory_id: int = Form(...), meters: float 
     run_query("UPDATE inventory SET meters_left = meters_left - %s WHERE id = %s", (meters, inventory_id), fetch=False)
     
     return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
+
+# --- НОВІ ФУНКЦІЇ ДЛЯ ФОТО ---
+
+@app.post("/appointment/{app_id}/upload_photo")
+async def upload_photo(app_id: int, photo_type: str = Form(...), file: UploadFile = File(...)):
+    content = await file.read()
+    run_query(
+        "INSERT INTO appointment_photos (appointment_id, photo_type, photo_data) VALUES (%s, %s, %s)",
+        (app_id, photo_type, psycopg2.Binary(content)),
+        fetch=False
+    )
+    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
+
+@app.get("/photo/{photo_id}")
+async def get_photo(photo_id: int):
+    res = run_query("SELECT photo_data FROM appointment_photos WHERE id = %s", (photo_id,))
+    if not res:
+        raise HTTPException(status_code=404, detail="Фото не знайдено")
+    return StreamingResponse(io.BytesIO(res[0]["photo_data"]), media_type="image/jpeg")
