@@ -1,9 +1,7 @@
-from datetime import datetime, timezone, timedelta, time as d_time
-import io
-import json
+from datetime import datetime, timezone, timedelta
 import os
-from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 import psycopg2
 import psycopg2.extras
@@ -42,6 +40,7 @@ def run_query(query, params=(), fetch=True):
             cur.execute(query, params or ())
             if fetch:
                 data = cur.fetchall()
+                # Приведення ключів до звичайних рядків для уникнення проблем у шаблонах
                 return [{str(k): v for k, v in dict(row).items()} for row in data]
             else:
                 conn.commit()
@@ -115,7 +114,7 @@ async def dashboard(request: Request):
         "calendar_data": calendar_data,
         "low_stock_alerts": low_stock_alerts
     }
-    return templates.TemplateResponse("dashboard.html", context)
+    return templates.TemplateResponse(request, "dashboard.html", context)
 
 @app.get("/appointments", response_class=HTMLResponse)
 async def appointments_page(request: Request):
@@ -129,7 +128,7 @@ async def appointments_page(request: Request):
         "services": services,
         "inventory": inventory
     }
-    return templates.TemplateResponse("appointments.html", context)
+    return templates.TemplateResponse(request, "appointments.html", context)
 
 @app.post("/appointments/add")
 async def add_appointment(
@@ -159,7 +158,7 @@ async def inventory_page(request: Request):
         "request": request,
         "inventory": inv
     }
-    return templates.TemplateResponse("inventory.html", context)
+    return templates.TemplateResponse(request, "inventory.html", context)
 
 @app.get("/reports", response_class=HTMLResponse)
 async def reports_page(request: Request):
@@ -168,4 +167,4 @@ async def reports_page(request: Request):
         "request": request,
         "appointments": rep
     }
-    return templates.TemplateResponse("reports.html", context)
+    return templates.TemplateResponse(request, "reports.html", context)
