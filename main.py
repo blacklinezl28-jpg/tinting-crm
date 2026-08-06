@@ -9,7 +9,6 @@ import psycopg2
 import psycopg2.extras
 
 app = FastAPI(title="Detailing & Tinting CRM Pro")
-
 templates = Jinja2Templates(directory="templates")
 
 KYIV_TZ = timezone(timedelta(hours=3))
@@ -53,44 +52,21 @@ def run_query(query, params=(), fetch=True):
         if conn:
             conn.close()
 
-def get_saved_film_meters(car_model):
-    if not car_model:
-        return 3.0
-    res = run_query("SELECT avg_meters FROM film_usage WHERE LOWER(car_model) = LOWER(%s)", (car_model.strip(),))
-    if res:
-        return float(res[0]["avg_meters"])
-    return 3.0
-
-def save_film_meters(car_model, meters):
-    if not car_model:
-        return
-    run_query("""
-        INSERT INTO film_usage (car_model, avg_meters) 
-        VALUES (%s, %s)
-        ON CONFLICT (car_model) 
-        DO UPDATE SET avg_meters = EXCLUDED.avg_meters;
-    """, (car_model.strip(), meters), fetch=False)
-
-# --- МАРШРУТИ (ROUTES) ---
+# --- МАРШРУТИ ---
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, month: str = None):
     current_month_str = get_now_kyiv().strftime("%Y-%m")
     selected_month = month if month else current_month_str
     
-    # 1. Фінансові показники та кількість авто за обраний місяць
     month_res = run_query(
         "SELECT SUM(final_price) as earned, SUM(net_profit) as profit, COUNT(*) as cars_count FROM appointments WHERE status = 'Виконано' AND date LIKE %s",
         (f"{selected_month}%",)
     )
-    
-    # Записано всього за місяць (усі статуси)
     total_booked_res = run_query(
         "SELECT COUNT(*) as total_booked FROM appointments WHERE date LIKE %s",
         (f"{selected_month}%",)
     )
-    
-    # Витрати на брак за обраний місяць
     month_spoiled_res = run_query(
         "SELECT SUM(s.cost_uah) as total_spoiled_cost FROM appointment_spoiled s JOIN appointments a ON s.appointment_id = a.id WHERE a.date LIKE %s",
         (f"{selected_month}%",)
@@ -103,16 +79,13 @@ async def dashboard(request: Request, month: str = None):
     cars_done_count = month_res[0]["cars_count"] if month_res and month_res[0]["cars_count"] is not None else 0
     cars_booked_count = total_booked_res[0]["total_booked"] if total_booked_res and total_booked_res[0]["total_booked"] is not None else 0
 
-    # 2. Наступний найближчий запис (усталена логіка)
     next_app = run_query("SELECT * FROM appointments WHERE status = 'Очікує' ORDER BY date ASC, time ASC LIMIT 1")
     next_appointment = next_app[0] if next_app else None
 
-    # 3. Календар зайнятості на обраний місяць
     calendar_data = run_query(
         "SELECT * FROM appointments WHERE date LIKE %s ORDER BY date ASC, time ASC",
         (f"{selected_month}%",)
     )
-    
     low_stock_alerts = run_query("SELECT item_name, meters_left, min_limit, unit FROM inventory WHERE meters_left <= min_limit")
 
     context = {
@@ -131,7 +104,8 @@ async def dashboard(request: Request, month: str = None):
 
 @app.get("/appointments", response_class=HTMLResponse)
 async def appointments_page(request: Request):
-    apps = run_query("SELECT * FROM appointments WHERE status != 'Виконано' AND status != 'Скасовано' ORDER BY date ASC, time ASC")
+    # Виводимо активні записи або всі (тут показуємо не виконані/не скасовані для швидкої роботи, а загальна база буде в Звітах/Клієнтах)
+    apps = run_query("SELECT * FROM appointments ORDER BY date DESC, time DESC")
     services = run_query("SELECT * FROM services")
     inventory = run_query("SELECT * FROM inventory")
     
@@ -152,25 +126,45 @@ async def add_appointment(
     car_number: str = Form(...),
     date: str = Form(...),
     time: str = Form(...),
-    comment: str = Form("")
+    comment: str = Form(""),
+    status: str = Form("Очікує"),
+    final_price: float = Form(0.0)
 ):
     created_at_str = get_now_kyiv().strftime("%Y-%m-%d %H:%M:%S")
     run_query(
         """INSERT INTO appointments (client_name, client_phone, car_brand, car_model, car_number, 
                                      created_at, date, time, status, final_price, material_cost, net_profit, comment) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Очікує', 0, 0, 0, %s)""",
-        (client_name, client_phone, car_brand, car_model, car_number, created_at_str, date, time, comment),
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)""",
+        (client_name, client_phone, car_brand, car_model, car_number, created_at_str, date, time, status, final_price, final_price, comment),
         fetch=False
     )
     return RedirectResponse(url="/appointments", status_code=303)
 
+@app.post("/appointments/update_status/{app_id}")
+async def update_appointment_status(app_id: int, status: str = Form(...)):
+    run_query("UPDATE appointments SET status = %s WHERE id = %s", (status, app_id), fetch=False)
+    return RedirectResponse(url="/appointments", status_code=303)
+
+@app.get("/services", response_class=HTMLResponse)
+async def services_page(request: Request):
+    serv = run_query("SELECT * FROM services ORDER BY id DESC")
+    context = {"request": request, "services": serv}
+    return templates.TemplateResponse(request, "services.html", context)
+
+@app.post("/services/add")
+async def add_service(service_name: str = Form(...), default_price: float = Form(...)):
+    run_query("INSERT INTO services (service_name, default_price) VALUES (%s, %s)", (service_name, default_price), fetch=False)
+    return RedirectResponse(url="/services", status_code=303)
+
+@app.post("/services/delete/{service_id}")
+async def delete_service(service_id: int):
+    run_query("DELETE FROM services WHERE id = %s", (service_id,), fetch=False)
+    return RedirectResponse(url="/services", status_code=303)
+
 @app.get("/inventory", response_class=HTMLResponse)
 async def inventory_page(request: Request):
     inv = run_query("SELECT * FROM inventory")
-    context = {
-        "request": request,
-        "inventory": inv
-    }
+    context = {"request": request, "inventory": inv}
     return templates.TemplateResponse(request, "inventory.html", context)
 
 @app.post("/inventory/add")
@@ -193,35 +187,29 @@ async def add_inventory(
     )
     return RedirectResponse(url="/inventory", status_code=303)
 
-@app.get("/services", response_class=HTMLResponse)
-async def services_page(request: Request):
-    serv = run_query("SELECT * FROM services")
-    context = {"request": request, "services": serv}
-    return templates.TemplateResponse(request, "services.html", context)
-
-@app.post("/services/add")
-async def add_service(service_name: str = Form(...), default_price: float = Form(...)):
-    run_query("INSERT INTO services (service_name, default_price) VALUES (%s, %s)", (service_name, default_price), fetch=False)
-    return RedirectResponse(url="/services", status_code=303)
-
 @app.get("/reports", response_class=HTMLResponse)
 async def reports_page(request: Request):
     rep = run_query("SELECT * FROM appointments ORDER BY id DESC")
-    debts = run_query("SELECT * FROM appointments WHERE payment_type = 'Борг' AND status = 'Виконано'")
+    # База клієнтів згрупована за телефонами та іменами з підрахунком загальної суми
+    clients = run_query("""
+        SELECT client_name, client_phone, 
+               COUNT(id) as total_cars, 
+               SUM(CASE WHEN status = 'Виконано' THEN final_price ELSE 0 END) as total_spent,
+               STRING_AGG(DISTINCT car_brand || ' ' || car_model, ', ') as cars_list
+        FROM appointments 
+        GROUP BY client_name, client_phone 
+        ORDER BY MAX(created_at) DESC
+    """)
     context = {
         "request": request,
         "appointments": rep,
-        "debts": debts
+        "clients": clients
     }
     return templates.TemplateResponse(request, "reports.html", context)
 
 @app.get("/backup/export")
 async def export_backup():
-    tables = [
-        "services", "inventory", "appointments", "appointment_photos",
-        "appointment_services", "appointment_inventory", "inventory_log",
-        "appointment_spoiled", "film_usage"
-    ]
+    tables = ["services", "inventory", "appointments", "appointment_photos", "appointment_services", "appointment_spoiled", "film_usage"]
     backup_data = {}
     for t in tables:
         df_t = run_query(f"SELECT * FROM {t}")
