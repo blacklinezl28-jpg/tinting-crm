@@ -14,83 +14,123 @@
                 <a class="nav-link" href="/">Головна</a>
                 <a class="nav-link active" href="/appointments">Записи</a>
                 <a class="nav-link" href="/inventory">Склад</a>
-                <a class="nav-link" href="/reports">Звіти</a>
+                <a class="nav-link" href="/services">Послуги</a>
+                <a class="nav-link" href="/reports">Звіти та Клієнти</a>
             </div>
         </div>
     </nav>
 
-    <div class="container">
-        <h2 class="mb-4">📋 Активні записи та черга</h2>
-        
-        <!-- Форма додавання -->
-        <div class="card bg-secondary text-light mb-4 p-3 border-0 shadow">
-            <h5 class="card-title text-warning mb-3">Додати новий запис</h5>
-            <form action="/appointments/add" method="POST">
-                <div class="row g-2">
-                    <div class="col-md-4">
-                        <input type="text" class="form-control" name="client_name" placeholder="Ім'я клієнта" required>
-                    </div>
-                    <div class="col-md-4">
-                        <input type="text" class="form-control" name="client_phone" placeholder="Телефон" required>
-                    </div>
-                    <div class="col-md-4">
-                        <input type="text" class="form-control" name="car_brand" placeholder="Марка авто (напр. Toyota)" required>
-                    </div>
-                    <div class="col-md-4">
-                        <input type="text" class="form-control" name="car_model" placeholder="Модель авто (напр. Camry)" required>
-                    </div>
-                    <div class="col-md-4">
-                        <input type="text" class="form-control" name="car_number" placeholder="Держ. номер">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="date" class="form-control" name="date" required>
-                    </div>
-                    <div class="col-md-2">
-                        <input type="time" class="form-control" name="time" required>
-                    </div>
-                    <div class="col-12">
-                        <input type="text" class="form-control" name="comment" placeholder="Коментар або послуги">
-                    </div>
-                    <div class="col-12 mt-3">
-                        <button type="submit" class="btn btn-warning w-100 fw-bold">Зберегти запис</button>
-                    </div>
+    <div class="container mb-5">
+        <h2 class="mb-4">📋 Управління записами та клієнтами</h2>
+
+        <!-- Форма нового запису -->
+        <div class="card bg-secondary text-light p-4 border-0 shadow mb-5">
+            <h4 class="mb-3">Новий запис на обслуговування</h4>
+            <form action="/appointments/add" method="post" class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Ім'я клієнта</label>
+                    <input type="text" name="client_name" class="form-control bg-dark text-light border-secondary" placeholder="Іван" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Номер телефону</label>
+                    <input type="text" name="client_phone" class="form-control bg-dark text-light border-secondary" placeholder="+380..." required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Держ. номер автомобіля</label>
+                    <input type="text" name="car_number" class="form-control bg-dark text-light border-secondary" placeholder="AI7777OO" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Марка авто</label>
+                    <input type="text" name="car_brand" class="form-control bg-dark text-light border-secondary" placeholder="Toyota" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Модель авто</label>
+                    <input type="text" name="car_model" class="form-control bg-dark text-light border-secondary" placeholder="Camry" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Дата</label>
+                    <input type="date" name="date" class="form-control bg-dark text-light border-secondary" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Час</label>
+                    <input type="time" name="time" class="form-control bg-dark text-light border-secondary" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Статус</label>
+                    <select name="status" class="form-select bg-dark text-light border-secondary">
+                        <option value="Очікує" selected>Очікує</option>
+                        <option value="Виконано">Виконано</option>
+                        <option value="Скасовано">Скасовано</option>
+                    </select>
+                </div>
+                <div class="col-md-12">
+                    <label class="form-label">Коментар / Послуги (текстом або нотатки)</label>
+                    <textarea name="comment" class="form-control bg-dark text-light border-secondary" rows="2" placeholder="Додаткові побажання..."></textarea>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Ціна (грн)</label>
+                    <input type="number" step="any" name="final_price" class="form-control bg-dark text-light border-secondary" value="0" required>
+                </div>
+                <div class="col-md-8 d-flex align-items-end">
+                    <button type="submit" class="btn btn-warning w-100 fw-bold">Створити запис</button>
                 </div>
             </form>
         </div>
 
-        <!-- Список записів -->
-        <div class="table-responsive">
-            <table class="table table-dark table-striped align-middle">
-                <thead>
-                    <tr>
-                        <th>Дата / Час</th>
-                        <th>Клієнт</th>
-                        <th>Автомобіль</th>
-                        <th>Номер</th>
-                        <th>Статус</th>
-                        <th>Дії</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for app in appointments %}
-                    <tr>
-                        <td>{{ app.date }} {{ app.time }}</td>
-                        <td>{{ app.client_name }}<br><small class="text-muted">{{ app.client_phone }}</small></td>
-                        <td>{{ app.car_brand }} {{ app.car_model }}</td>
-                        <td>{{ app.car_number }}</td>
-                        <td><span class="badge bg-warning text-dark">{{ app.status }}</span></td>
-                        <td>
-                            <a href="#" class="btn btn-sm btn-outline-light">Деталі</a>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="text-center text-muted">Немає активних записів</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <!-- Список поточних записів із кольоровою індикацією -->
+        <div class="card bg-secondary text-light p-4 border-0 shadow">
+            <h4 class="mb-3">Активні та історія записів</h4>
+            <div class="table-responsive">
+                <table class="table table-dark table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>Дата / Час</th>
+                            <th>Клієнт</th>
+                            <th>Автомобіль</th>
+                            <th>Статус</th>
+                            <th>Ціна</th>
+                            <th>Змінити статус</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for app in appointments %}
+                        <tr class="{% if app.status == 'Виконано' %}table-success text-dark{% elif app.status == 'Скасовано' %}table-danger text-dark{% else %}table-warning text-dark{% endif %}">
+                            <td><strong>{{ app.date }}</strong><br>{{ app.time }}</td>
+                            <td>
+                                <strong>{{ app.client_name }}</strong><br>
+                                <a href="tel:{{ app.client_phone }}" class="text-decoration-none fw-bold">{{ app.client_phone }}</a>
+                            </td>
+                            <td>
+                                {{ app.car_brand }} {{ app.car_model }}<br>
+                                <small class="text-muted">[{{ app.car_number }}]</small>
+                            </td>
+                            <td>
+                                <span class="badge {% if app.status == 'Виконано' %}bg-success{% elif app.status == 'Очікує' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ app.status }}
+                                </span>
+                            </td>
+                            <td class="fw-bold">{{ app.final_price }} грн</td>
+                            <td>
+                                <form action="/appointments/update_status/{{ app.id }}" method="post" class="d-flex gap-1">
+                                    <select name="status" class="form-select form-select-sm bg-dark text-light border-secondary">
+                                        <option value="Очікує" {% if app.status == 'Очікує' %}selected{% endif %}>Очікує</option>
+                                        <option value="Виконано" {% if app.status == 'Виконано' %}selected{% endif %}>Виконано</option>
+                                        <option value="Скасовано" {% if app.status == 'Скасовано' %}selected{% endif %}>Скасовано</option>
+                                    </select>
+                                    <button type="submit" class="btn btn-sm btn-outline-light">Ок</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center text-white-50">Немає записів.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
