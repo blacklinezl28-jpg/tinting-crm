@@ -1,69 +1,75 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="row">
+<div class="row g-4 mb-5">
     <div class="col-md-4">
-        <div class="card p-3 shadow-sm">
-            <h4>Додати матеріал</h4>
+        <div class="card bg-secondary text-light p-3 border-0 shadow">
+            <h4 class="mb-3">Додати матеріал</h4>
             <form action="/inventory/add" method="post">
                 <div class="mb-2">
                     <label class="form-label">Назва</label>
-                    <input type="text" name="item_name" class="form-control" required>
+                    <input type="text" name="item_name" class="form-control bg-dark text-light border-secondary" required>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Категорія</label>
-                    <input type="text" name="category" class="form-control" required>
+                    <input type="text" name="category" class="form-control bg-dark text-light border-secondary" required>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Ширина (см)</label>
-                    <input type="number" step="0.1" name="width_cm" class="form-control" value="0">
+                    <input type="number" step="0.1" name="width_cm" class="form-control bg-dark text-light border-secondary" value="0">
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Залишок</label>
-                    <input type="number" step="0.1" name="meters_left" class="form-control" required>
+                    <input type="number" step="0.1" name="meters_left" class="form-control bg-dark text-light border-secondary" required>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Мін. ліміт</label>
-                    <input type="number" step="0.1" name="min_limit" class="form-control" value="5">
+                    <input type="number" step="0.1" name="min_limit" class="form-control bg-dark text-light border-secondary" value="5">
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Ціна ($)</label>
-                    <input type="number" step="0.01" name="price_usd" class="form-control" required>
+                    <input type="number" step="0.01" name="price_usd" class="form-control bg-dark text-light border-secondary" required>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Курс долара</label>
-                    <input type="number" step="0.01" name="exchange_rate" class="form-control" value="41.0">
+                    <input type="number" step="0.01" name="exchange_rate" class="form-control bg-dark text-light border-secondary" value="41.0">
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Одиниця виміру</label>
-                    <input type="text" name="unit" class="form-control" value="м">
+                    <input type="text" name="unit" class="form-control bg-dark text-light border-secondary" value="м">
                 </div>
-                <button type="submit" class="btn btn-success w-100">Додати на склад</button>
+                <button type="submit" class="btn btn-success w-100 fw-bold">Додати на склад</button>
             </form>
         </div>
     </div>
     <div class="col-md-8">
-        <div class="card p-3 shadow-sm">
-            <h4>Залишки на складі</h4>
-            <table class="table table-hover mt-2">
-                <thead>
-                    <tr>
-                        <th>Назва</th>
-                        <th>Категорія</th>
-                        <th>Залишок</th>
-                        <th>Ціна грн/од</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in inventory %}
-                    <tr class="{% if item.meters_left <= item.min_limit %}table-danger{% endif %}">
-                        <td>{{ item.item_name }}</td>
-                        <td>{{ item.category }}</td>
-                        <td>{{ item.meters_left }} {{ item.unit }}</td>
-                        <td>{{ item.cost_per_unit_uah | round(2) }} грн</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="card bg-secondary text-light p-3 border-0 shadow">
+            <h4 class="mb-3">Залишки на складі</h4>
+            <div class="table-responsive">
+                <table class="table table-dark table-striped table-hover align-middle mt-2">
+                    <thead>
+                        <tr>
+                            <th>Назва</th>
+                            <th>Категорія</th>
+                            <th>Залишок</th>
+                            <th>Ціна грн/од</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in inventory %}
+                        <tr class="{% if item.meters_left <= item.min_limit %}table-danger text-dark{% endif %}">
+                            <td><strong>{{ item.item_name }}</strong></td>
+                            <td>{{ item.category }}</td>
+                            <td>{{ item.meters_left }} {{ item.unit }}</td>
+                            <td>{{ item.cost_per_unit_uah | round(2) }} грн</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-white-50">Склад порожній.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
