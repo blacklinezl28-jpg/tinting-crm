@@ -1,1 +1,66 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Головна - CRM Tinting</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-dark text-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold text-warning" href="/">🚗 Detailing CRM</a>
+            <div class="navbar-nav">
+                <a class="nav-link active" href="/">Головна</a>
+                <a class="nav-link" href="/appointments">Записи</a>
+                <a class="nav-link" href="/inventory">Склад</a>
+                <a class="nav-link" href="/reports">Звіти</a>
+            </div>
+        </div>
+    </nav>
 
+    <div class="container">
+        <h2 class="mb-4">📊 Фінансова панель місяця</h2>
+
+        <!-- Блоки зі статистикою -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card bg-secondary text-light p-3 border-0 shadow">
+                    <h6 class="text-white-50">Виторг за місяць</h6>
+                    <h3>{{ earned_month }} грн</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-secondary text-light p-3 border-0 shadow">
+                    <h6 class="text-white-50">Чистий прибуток</h6>
+                    <h3 class="text-success">{{ profit_month }} грн</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-secondary text-light p-3 border-0 shadow">
+                    <h6 class="text-white-50">Витрати на брак</h6>
+                    <h3 class="text-danger">{{ spoiled_month_cost }} грн</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-secondary text-light p-3 border-0 shadow">
+                    <h6 class="text-white-50">Оброблено авто</h6>
+                    <h3>{{ cars_month_count }}</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Попередження по складу, якщо є -->
+        {% if low_stock_alerts %}
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">⚠️ Увага! Закінчується матеріал на складі:</h4>
+            <ul>
+                {% for item in low_stock_alerts %}
+                <li>{{ item.item_name }} — залишилось {{ item.meters_left }} {{ item.unit }} (мін. ліміт: {{ item.min_limit }})</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
