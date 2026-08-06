@@ -74,39 +74,55 @@ def save_film_meters(car_model, meters):
 # --- МАРШРУТИ (ROUTES) ---
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    month_str = get_now_kyiv().strftime("%Y-%m")
+async def dashboard(request: Request, month: str = None):
+    current_month_str = get_now_kyiv().strftime("%Y-%m")
+    selected_month = month if month else current_month_str
     
+    # 1. Фінансові показники та кількість авто за обраний місяць
     month_res = run_query(
         "SELECT SUM(final_price) as earned, SUM(net_profit) as profit, COUNT(*) as cars_count FROM appointments WHERE status = 'Виконано' AND date LIKE %s",
-        (f"{month_str}%",)
+        (f"{selected_month}%",)
     )
+    
+    # Записано всього за місяць (усі статуси)
+    total_booked_res = run_query(
+        "SELECT COUNT(*) as total_booked FROM appointments WHERE date LIKE %s",
+        (f"{selected_month}%",)
+    )
+    
+    # Витрати на брак за обраний місяць
     month_spoiled_res = run_query(
         "SELECT SUM(s.cost_uah) as total_spoiled_cost FROM appointment_spoiled s JOIN appointments a ON s.appointment_id = a.id WHERE a.date LIKE %s",
-        (f"{month_str}%",)
+        (f"{selected_month}%",)
     )
     
     spoiled_month_cost = month_spoiled_res[0]["total_spoiled_cost"] if month_spoiled_res and month_spoiled_res[0]["total_spoiled_cost"] is not None else 0.0
-    total_queue_res = run_query("SELECT COUNT(*) as total_queue FROM appointments WHERE status = 'Очікує'")
-    total_queue_count = total_queue_res[0]["total_queue"] if total_queue_res and total_queue_res[0]["total_queue"] is not None else 0
-
     earned_month = month_res[0]["earned"] if month_res and month_res[0]["earned"] is not None else 0.0
     raw_profit_month = month_res[0]["profit"] if month_res and month_res[0]["profit"] is not None else 0.0
     profit_month = raw_profit_month - spoiled_month_cost
-    cars_month_count = month_res[0]["cars_count"] if month_res and month_res[0]["cars_count"] is not None else 0
+    cars_done_count = month_res[0]["cars_count"] if month_res and month_res[0]["cars_count"] is not None else 0
+    cars_booked_count = total_booked_res[0]["total_booked"] if total_booked_res and total_booked_res[0]["total_booked"] is not None else 0
 
+    # 2. Наступний найближчий запис (усталена логіка)
     next_app = run_query("SELECT * FROM appointments WHERE status = 'Очікує' ORDER BY date ASC, time ASC LIMIT 1")
     next_appointment = next_app[0] if next_app else None
-    calendar_data = run_query("SELECT date, status, car_brand, car_model, car_number, time FROM appointments ORDER BY date ASC, time ASC")
+
+    # 3. Календар зайнятості на обраний місяць
+    calendar_data = run_query(
+        "SELECT * FROM appointments WHERE date LIKE %s ORDER BY date ASC, time ASC",
+        (f"{selected_month}%",)
+    )
+    
     low_stock_alerts = run_query("SELECT item_name, meters_left, min_limit, unit FROM inventory WHERE meters_left <= min_limit")
 
     context = {
         "request": request,
+        "selected_month": selected_month,
         "earned_month": int(earned_month),
         "profit_month": int(profit_month),
         "spoiled_month_cost": int(spoiled_month_cost),
-        "cars_month_count": int(cars_month_count),
-        "total_queue_count": int(total_queue_count),
+        "cars_done_count": int(cars_done_count),
+        "cars_booked_count": int(cars_booked_count),
         "next_appointment": next_appointment,
         "calendar_data": calendar_data,
         "low_stock_alerts": low_stock_alerts
@@ -142,7 +158,7 @@ async def add_appointment(
     run_query(
         """INSERT INTO appointments (client_name, client_phone, car_brand, car_model, car_number, 
                                      created_at, date, time, status, final_price, material_cost, net_profit, comment) 
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Очікує', 0, 0, 0, %s)""",
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Очікує', 0, 0, 0, %s)""",
         (client_name, client_phone, car_brand, car_model, car_number, created_at_str, date, time, comment),
         fetch=False
     )
@@ -171,7 +187,7 @@ async def add_inventory(
     cost_uah = price_usd * exchange_rate
     run_query(
         """INSERT INTO inventory (item_name, category, width_cm, meters_left, min_limit, price_usd, exchange_rate, cost_per_unit_uah, unit) 
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (item_name, category, width_cm, meters_left, min_limit, price_usd, exchange_rate, cost_uah, unit),
         fetch=False
     )
