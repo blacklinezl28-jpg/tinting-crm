@@ -1,55 +1,85 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Історія заїздів та фінансові звіти</h2>
-<div class="card p-3 shadow-sm mb-4">
-    <h4>Список усіх записів</h4>
-    <table class="table table-bordered mt-2">
-        <thead>
-            <tr>
-                <th>Дата</th>
-                <th>Клієнт</th>
-                <th>Авто</th>
-                <th>Статус</th>
-                <th>Ціна</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for app in appointments %}
-            <tr>
-                <td>{{ app.date }} {{ app.time }}</td>
-                <td>{{ app.client_name }} ({{ app.client_phone }})</td>
-                <td>{{ app.car_brand }} {{ app.car_model }} [{{ app.car_number }}]</td>
-                <td>{{ app.status }}</td>
-                <td>{{ app.final_price }} грн</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+    <div class="mb-5">
+        <h2 class="mb-4">📈 Історія заїздів та фінансові звіти</h2>
 
-<div class="card p-3 shadow-sm border-danger">
-    <h4 class="text-danger">Неоплачені борги клієнтів</h4>
-    <table class="table table-striped mt-2">
-        <thead>
-            <tr>
-                <th>Дата</th>
-                <th>Клієнт</th>
-                <th>Телефон</th>
-                <th>Авто</th>
-                <th>Сума боргу</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for debt in debts %}
-            <tr>
-                <td>{{ debt.date }}</td>
-                <td>{{ debt.client_name }}</td>
-                <td>{{ debt.client_phone }}</td>
-                <td>{{ debt.car_brand }} {{ debt.car_model }}</td>
-                <td><strong>{{ debt.final_price }} грн</strong></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+        <!-- Список усіх записів -->
+        <div class="card bg-secondary text-light p-4 border-0 shadow mb-4">
+            <h4 class="mb-3">Список усіх записів</h4>
+            <div class="table-responsive">
+                <table class="table table-dark table-striped table-hover align-middle mt-2">
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Клієнт</th>
+                            <th>Авто</th>
+                            <th>Статус</th>
+                            <th>Ціна</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for app in appointments %}
+                        <tr>
+                            <td><strong>{{ app.date }}</strong> {{ app.time }}</td>
+                            <td>
+                                <a href="/client/{{ app.client_phone }}" class="text-warning text-decoration-none fw-bold">
+                                    {{ app.client_name }}
+                                </a><br>
+                                <a href="tel:{{ app.client_phone }}" class="text-info text-decoration-none">{{ app.client_phone }}</a>
+                            </td>
+                            <td>{{ app.car_brand }} {{ app.car_model }} <small class="text-white-50">[{{ app.car_number }}]</small></td>
+                            <td>
+                                <span class="badge {% if app.status == 'Виконано' %}bg-success{% elif app.status == 'Очікує' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ app.status }}
+                                </span>
+                            </td>
+                            <td class="fw-bold">{{ app.final_price }} грн</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-white-50">Немає записів в історії.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Неоплачені борги клієнтів -->
+        <div class="card bg-secondary text-light p-4 border-0 shadow border-danger">
+            <h4 class="text-danger mb-3">⚠️ Неоплачені борги клієнтів</h4>
+            <div class="table-responsive">
+                <table class="table table-dark table-striped table-hover align-middle mt-2">
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Клієнт</th>
+                            <th>Телефон</th>
+                            <th>Авто</th>
+                            <th>Сума боргу</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for debt in debts %}
+                        <tr>
+                            <td>{{ debt.date }}</td>
+                            <td>
+                                <a href="/client/{{ debt.client_phone }}" class="text-warning text-decoration-none fw-bold">
+                                    {{ debt.client_name }}
+                                </a>
+                            </td>
+                            <td><a href="tel:{{ debt.client_phone }}" class="text-info text-decoration-none">{{ debt.client_phone }}</a></td>
+                            <td>{{ debt.car_brand }} {{ debt.car_model }}</td>
+                            <td><strong class="text-danger">{{ debt.final_price }} грн</strong></td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-white-50">Чудово! Неоплачених боргів немає.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 {% endblock %}
