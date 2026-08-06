@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+    <div class="mb-5">
+        <h2 class="mb-4">💰 Фінанси та облік витрат</h2>
+
+        <!-- Блок загальної статистики -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card bg-secondary text-light p-3 border-0 shadow">
+                    <h6 class="text-white-50">Загальний дохід</h6>
+                    <h3 class="text-success fw-bold">{{ total_income | default(0) }} грн</h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-secondary text-light p-3 border-0 shadow">
+                    <h6 class="text-white-50">Витрати на матеріали / брак</h6>
+                    <h3 class="text-danger fw-bold">{{ total_expenses | default(0) }} грн</h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-secondary text-light p-3 border-0 shadow">
+                    <h6 class="text-white-50">Чистий прибуток</h6>
+                    <h3 class="text-warning fw-bold">{{ net_profit | default(0) }} грн</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Форма додавання позапланових витрат (якщо потрібно) -->
+        <div class="card bg-secondary text-light p-4 border-0 shadow">
+            <h4 class="mb-3">Фінансова історія / транзакції</h4>
+            <p class="text-white-50">Тут ви можете бачити рух коштів по ваших записах та операціях зі складом.</p>
+            <!-- За потреби сюди можна додати таблицю транзакцій -->
+        </div>
+    </div>
+{% endblock %}
