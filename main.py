@@ -42,7 +42,6 @@ def run_query(query, params=(), fetch=True):
             cur.execute(query, params or ())
             if fetch:
                 data = cur.fetchall()
-                # Безпечне перетворення кожного рядка у чистий класичний dict для уникнення помилок у Jinja2
                 return [{str(k): v for k, v in dict(row).items()} for row in data]
             else:
                 conn.commit()
@@ -105,7 +104,7 @@ async def dashboard(request: Request):
     calendar_data = run_query("SELECT date, status, car_brand, car_model, car_number, time FROM appointments ORDER BY date ASC, time ASC")
     low_stock_alerts = run_query("SELECT item_name, meters_left, min_limit, unit FROM inventory WHERE meters_left <= min_limit")
 
-    return templates.TemplateResponse("dashboard.html", {
+    context = {
         "request": request,
         "earned_month": int(earned_month),
         "profit_month": int(profit_month),
@@ -115,7 +114,8 @@ async def dashboard(request: Request):
         "next_appointment": next_appointment,
         "calendar_data": calendar_data,
         "low_stock_alerts": low_stock_alerts
-    })
+    }
+    return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/appointments", response_class=HTMLResponse)
 async def appointments_page(request: Request):
@@ -123,12 +123,13 @@ async def appointments_page(request: Request):
     services = run_query("SELECT * FROM services")
     inventory = run_query("SELECT * FROM inventory")
     
-    return templates.TemplateResponse("appointments.html", {
+    context = {
         "request": request,
         "appointments": apps,
         "services": services,
         "inventory": inventory
-    })
+    }
+    return templates.TemplateResponse("appointments.html", context)
 
 @app.post("/appointments/add")
 async def add_appointment(
@@ -154,15 +155,17 @@ async def add_appointment(
 @app.get("/inventory", response_class=HTMLResponse)
 async def inventory_page(request: Request):
     inv = run_query("SELECT * FROM inventory")
-    return templates.TemplateResponse("inventory.html", {
+    context = {
         "request": request,
         "inventory": inv
-    })
+    }
+    return templates.TemplateResponse("inventory.html", context)
 
 @app.get("/reports", response_class=HTMLResponse)
 async def reports_page(request: Request):
     rep = run_query("SELECT * FROM appointments ORDER BY id DESC")
-    return templates.TemplateResponse("reports.html", {
+    context = {
         "request": request,
         "appointments": rep
-    })
+    }
+    return templates.TemplateResponse("reports.html", context)
