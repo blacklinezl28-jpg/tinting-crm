@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+    <div class="mb-5">
+        <h2 class="mb-4">👥 Клієнти та їх історія</h2>
+
+        <div class="card bg-secondary text-light p-4 border-0 shadow">
+            <h4 class="mb-3">База клієнтів</h4>
+            <div class="table-responsive">
+                <table class="table table-dark table-striped table-hover align-middle mt-2">
+                    <thead>
+                        <tr>
+                            <th>Ім'я клієнта</th>
+                            <th>Телефон</th>
+                            <th>Автомобіль</th>
+                            <th>Дія</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for client in clients %}
+                        <tr>
+                            <td><strong>{{ client.client_name }}</strong></td>
+                            <td><a href="tel:{{ client.client_phone }}" class="text-info text-decoration-none">{{ client.client_phone }}</a></td>
+                            <td>{{ client.car_brand }} {{ client.car_model }} <small class="text-white-50">[{{ client.car_number }}]</small></td>
+                            <td>
+                                <a href="/client/{{ client.client_phone }}" class="btn btn-sm btn-warning fw-bold">Картка клієнта</a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-white-50">Список клієнтів порожній.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}
