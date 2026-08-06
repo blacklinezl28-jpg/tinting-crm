@@ -2,27 +2,32 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <title>Detailing & Tinting CRM</title>
+    <title>Detailing & Tinting CRM Pro</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+<body class="bg-dark text-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-black mb-4 border-bottom border-secondary">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/">🚗 CRM Tinting</a>
-            <div class="collapse navbar-collapse">
+            <a class="navbar-brand fw-bold" href="/">🚗 Tinting CRM</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item"><a class="nav-link" href="/">Головна</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/">Дашбоард</a></li>
                     <li class="nav-item"><a class="nav-link" href="/appointments">Записи</a></li>
                     <li class="nav-item"><a class="nav-link" href="/inventory">Склад</a></li>
                     <li class="nav-item"><a class="nav-link" href="/services">Послуги</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/reports">Звіти та Борги</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/clients">Клієнти</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/finances">Фінанси</a></li>
                 </ul>
-                <a href="/backup/export" class="btn btn-outline-light btn-sm">📥 Скачати бекап (JSON)</a>
+                <a href="/backup/export" class="btn btn-outline-light btn-sm">📥 Скачати бекап</a>
             </div>
         </div>
     </nav>
-    <div class="container">
+    <div class="container py-3">
         {% block content %}{% endblock %}
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
