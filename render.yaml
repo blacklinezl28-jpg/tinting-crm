@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: tinting-crm
+    name: tinting-crm-1
     env: python
     region: frankfurt
     plan: free
