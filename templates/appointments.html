@@ -97,7 +97,9 @@
                         <tr class="{% if app.status == 'Виконано' %}table-success text-dark{% elif app.status == 'Скасовано' %}table-danger text-dark{% else %}table-warning text-dark{% endif %}">
                             <td><strong>{{ app.date }}</strong><br>{{ app.time }}</td>
                             <td>
-                                <strong>{{ app.client_name }}</strong><br>
+                                <a href="/appointment/{{ app.id }}" class="text-warning text-decoration-none fw-bold">
+                                    {{ app.client_name }}
+                                </a><br>
                                 <a href="tel:{{ app.client_phone }}" class="text-decoration-none fw-bold">{{ app.client_phone }}</a>
                             </td>
                             <td>
