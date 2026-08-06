@@ -52,8 +52,7 @@ def run_query(query, params=(), fetch=True):
         if conn:
             conn.close()
 
-# --- МАРШРУТИ ---
-
+# --- 1. ГОЛОВНЕ МЕНЮ (ДАШБОРД) ---
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, month: str = None):
     current_month_str = get_now_kyiv().strftime("%Y-%m")
@@ -102,6 +101,8 @@ async def dashboard(request: Request, month: str = None):
     }
     return templates.TemplateResponse(request, "dashboard.html", context)
 
+
+# --- 2. ЗАПИСИ ---
 @app.get("/appointments", response_class=HTMLResponse)
 async def appointments_page(request: Request):
     apps = run_query("SELECT * FROM appointments ORDER BY date DESC, time DESC")
@@ -144,25 +145,91 @@ async def update_appointment_status(app_id: int, status: str = Form(...)):
     run_query("UPDATE appointments SET status = %s WHERE id = %s", (status, app_id), fetch=False)
     return RedirectResponse(url="/appointments", status_code=303)
 
-@app.get("/services", response_class=HTMLResponse)
-async def services_page(request: Request):
-    serv = run_query("SELECT * FROM services ORDER BY id DESC")
-    context = {"request": request, "services": serv}
-    return templates.TemplateResponse(request, "services.html", context)
+@app.get("/appointment/{app_id}", response_class=HTMLResponse)
+async def appointment_detail(request: Request, app_id: int):
+    app = run_query("SELECT * FROM appointments WHERE id = %s", (app_id,))
+    if not app:
+        raise HTTPException(status_code=404, detail="Запис не знайдено")
+    
+    inventory = run_query("SELECT * FROM inventory")
+    services = run_query("SELECT * FROM services")
+    photos = run_query("SELECT id, photo_type FROM appointment_photos WHERE appointment_id = %s", (app_id,))
+    spoiled_items = run_query("SELECT s.*, i.item_name FROM appointment_spoiled s JOIN inventory i ON s.inventory_id = i.id WHERE s.appointment_id = %s", (app_id,))
+    
+    return templates.TemplateResponse(request, "appointment_detail.html", {
+        "request": request, 
+        "app": app[0],
+        "inventory": inventory,
+        "services": services,
+        "photos": photos,
+        "spoiled_items": spoiled_items
+    })
 
-@app.post("/services/add")
-async def add_service(service_name: str = Form(...), default_price: float = Form(...)):
-    run_query("INSERT INTO services (service_name, default_price) VALUES (%s, %s)", (service_name, default_price), fetch=False)
-    return RedirectResponse(url="/services", status_code=303)
+@app.post("/appointment/{app_id}/update")
+async def update_appointment(
+    app_id: int,
+    client_name: str = Form(...),
+    client_phone: str = Form(...),
+    car_brand: str = Form(...),
+    car_model: str = Form(...),
+    car_number: str = Form(...),
+    date: str = Form(...),
+    time: str = Form(...),
+    status: str = Form(...),
+    final_price: float = Form(0.0),
+    comment: str = Form("")
+):
+    run_query(
+        """UPDATE appointments SET client_name=%s, client_phone=%s, car_brand=%s, car_model=%s, 
+           car_number=%s, date=%s, time=%s, status=%s, final_price=%s, comment=%s WHERE id=%s""",
+        (client_name, client_phone, car_brand, car_model, car_number, date, time, status, final_price, comment, app_id),
+        fetch=False
+    )
+    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
 
-@app.post("/services/delete/{service_id}")
-async def delete_service(service_id: int):
-    run_query("DELETE FROM services WHERE id = %s", (service_id,), fetch=False)
-    return RedirectResponse(url="/services", status_code=303)
+@app.post("/appointment/{app_id}/use_material")
+async def use_material(app_id: int, inventory_id: int = Form(...), meters: float = Form(...)):
+    run_query("UPDATE inventory SET meters_left = meters_left - %s WHERE id = %s", (meters, inventory_id), fetch=False)
+    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
 
+@app.post("/appointment/{app_id}/add_spoiled")
+async def add_spoiled(app_id: int, inventory_id: int = Form(...), meters: float = Form(...)):
+    inv_item = run_query("SELECT cost_per_unit_uah FROM inventory WHERE id = %s", (inventory_id,))
+    cost_per_unit = inv_item[0]["cost_per_unit_uah"] if inv_item and inv_item[0]["cost_per_unit_uah"] is not None else 0.0
+    cost_uah = meters * cost_per_unit
+
+    run_query(
+        "INSERT INTO appointment_spoiled (appointment_id, inventory_id, meters, cost_uah) VALUES (%s, %s, %s, %s)",
+        (app_id, inventory_id, meters, cost_uah),
+        fetch=False
+    )
+    run_query("UPDATE inventory SET meters_left = meters_left - %s WHERE id = %s", (meters, inventory_id), fetch=False)
+    
+    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
+
+@app.post("/appointment/{app_id}/upload_photo")
+async def upload_photo(app_id: int, photo_type: str = Form(...), file: UploadFile = File(...)):
+    content = await file.read()
+    if content:
+        run_query(
+            "INSERT INTO appointment_photos (appointment_id, photo_type, photo_data) VALUES (%s, %s, %s)",
+            (app_id, photo_type, psycopg2.Binary(content)),
+            fetch=False
+        )
+    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
+
+@app.get("/photo/{photo_id}")
+async def get_photo(photo_id: int):
+    res = run_query("SELECT photo_data FROM appointment_photos WHERE id = %s", (photo_id,))
+    if not res or not res[0]["photo_data"]:
+        raise HTTPException(status_code=404, detail="Фото не знайдено")
+    return StreamingResponse(io.BytesIO(res[0]["photo_data"]), media_type="image/jpeg")
+
+
+# --- 3. СКЛАД ---
 @app.get("/inventory", response_class=HTMLResponse)
 async def inventory_page(request: Request):
-    inv = run_query("SELECT * FROM inventory")
+    inv = run_query("SELECT * FROM inventory ORDER BY id DESC")
     context = {"request": request, "inventory": inv}
     return templates.TemplateResponse(request, "inventory.html", context)
 
@@ -186,25 +253,112 @@ async def add_inventory(
     )
     return RedirectResponse(url="/inventory", status_code=303)
 
-@app.get("/reports", response_class=HTMLResponse)
-async def reports_page(request: Request):
-    rep = run_query("SELECT * FROM appointments ORDER BY id DESC")
+@app.post("/inventory/update/{item_id}")
+async def update_inventory(
+    item_id: int,
+    item_name: str = Form(...),
+    category: str = Form(...),
+    meters_left: float = Form(...),
+    min_limit: float = Form(...),
+    price_usd: float = Form(...),
+    exchange_rate: float = Form(...)
+):
+    cost_uah = price_usd * exchange_rate
+    run_query(
+        """UPDATE inventory SET item_name=%s, category=%s, meters_left=%s, min_limit=%s, 
+           price_usd=%s, exchange_rate=%s, cost_per_unit_uah=%s WHERE id=%s""",
+        (item_name, category, meters_left, min_limit, price_usd, exchange_rate, cost_uah, item_id),
+        fetch=False
+    )
+    return RedirectResponse(url="/inventory", status_code=303)
+
+@app.post("/inventory/delete/{item_id}")
+async def delete_inventory(item_id: int):
+    run_query("DELETE FROM inventory WHERE id = %s", (item_id,), fetch=False)
+    return RedirectResponse(url="/inventory", status_code=303)
+
+
+# --- 4. ПОСЛУГИ ---
+@app.get("/services", response_class=HTMLResponse)
+async def services_page(request: Request):
+    serv = run_query("SELECT * FROM services ORDER BY id DESC")
+    context = {"request": request, "services": serv}
+    return templates.TemplateResponse(request, "services.html", context)
+
+@app.post("/services/add")
+async def add_service(service_name: str = Form(...), default_price: float = Form(...)):
+    run_query("INSERT INTO services (service_name, default_price) VALUES (%s, %s)", (service_name, default_price), fetch=False)
+    return RedirectResponse(url="/services", status_code=303)
+
+@app.post("/services/delete/{service_id}")
+async def delete_service(service_id: int):
+    run_query("DELETE FROM services WHERE id = %s", (service_id,), fetch=False)
+    return RedirectResponse(url="/services", status_code=303)
+
+
+# --- 5. КЛІЄНТИ ---
+@app.get("/clients", response_class=HTMLResponse)
+async def clients_page(request: Request):
     clients = run_query("""
         SELECT client_name, client_phone, 
-               COUNT(id) as total_cars, 
+               COUNT(id) as total_visits, 
                SUM(CASE WHEN status = 'Виконано' THEN final_price ELSE 0 END) as total_spent,
-               STRING_AGG(DISTINCT car_brand || ' ' || car_model, ', ') as cars_list
+               STRING_AGG(DISTINCT car_brand || ' ' || car_model || ' (' || car_number || ')', ', ') as cars_list
         FROM appointments 
         GROUP BY client_name, client_phone 
         ORDER BY MAX(created_at) DESC
     """)
+    context = {"request": request, "clients": clients}
+    return templates.TemplateResponse(request, "clients.html", context)
+
+@app.get("/client/{phone}", response_class=HTMLResponse)
+async def client_detail_page(request: Request, phone: str):
+    client_apps = run_query("SELECT * FROM appointments WHERE client_phone = %s ORDER BY date DESC", (phone,))
+    if not client_apps:
+        raise HTTPException(status_code=404, detail="Клієнта не знайдено")
+    
+    client_info = client_apps[0]
+    total_spent = sum([app["final_price"] for app in client_apps if app["status"] == "Виконано"])
+    
     context = {
         "request": request,
-        "appointments": rep,
-        "clients": clients
+        "client_info": client_info,
+        "client_apps": client_apps,
+        "total_spent": total_spent
     }
-    return templates.TemplateResponse(request, "reports.html", context)
+    return templates.TemplateResponse(request, "client_detail.html", context)
 
+
+# --- 6. ФІНАНСИ ---
+@app.get("/finances", response_class=HTMLResponse)
+async def finances_page(request: Request):
+    # Загальна аналітика по місяцях/роках
+    monthly_stats = run_query("""
+        SELECT 
+            SUBSTRING(date, 1, 7) as month_str,
+            COUNT(CASE WHEN status = 'Виконано' THEN 1 END) as cars_done,
+            SUM(CASE WHEN status = 'Виконано' THEN final_price ELSE 0 END) as earned
+        FROM appointments 
+        GROUP BY SUBSTRING(date, 1, 7) 
+        ORDER BY month_str DESC
+    """)
+    
+    # Повна розгорнута таблиця всіх клієнтів (нумерована)
+    all_records = run_query("""
+        SELECT id, client_name, client_phone, car_brand, car_model, car_number, date, final_price, status 
+        FROM appointments 
+        ORDER BY date DESC, id DESC
+    """)
+    
+    context = {
+        "request": request,
+        "monthly_stats": monthly_stats,
+        "all_records": all_records
+    }
+    return templates.TemplateResponse(request, "finances.html", context)
+
+
+# --- БЕКАП ---
 @app.get("/backup/export")
 async def export_backup():
     tables = ["services", "inventory", "appointments", "appointment_photos", "appointment_services", "appointment_spoiled", "film_usage"]
@@ -219,59 +373,3 @@ async def export_backup():
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename=crm_backup_{get_now_kyiv().strftime('%Y-%m-%d')}.json"}
     )
-
-@app.get("/appointment/{app_id}", response_class=HTMLResponse)
-async def appointment_detail(request: Request, app_id: int):
-    app = run_query("SELECT * FROM appointments WHERE id = %s", (app_id,))
-    if not app:
-        raise HTTPException(status_code=404, detail="Запис не знайдено")
-    
-    inventory = run_query("SELECT * FROM inventory")
-    # Додаємо отримання фото для сторінки
-    photos = run_query("SELECT id, photo_type FROM appointment_photos WHERE appointment_id = %s", (app_id,))
-    
-    return templates.TemplateResponse(request, "appointment_detail.html", {
-        "request": request, 
-        "app": app[0],
-        "inventory": inventory,
-        "photos": photos
-    })
-
-@app.post("/appointment/{app_id}/use_material")
-async def use_material(app_id: int, inventory_id: int = Form(...), meters: float = Form(...)):
-    run_query("UPDATE inventory SET meters_left = meters_left - %s WHERE id = %s", (meters, inventory_id), fetch=False)
-    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
-
-@app.post("/appointment/{app_id}/add_spoiled")
-async def add_spoiled(app_id: int, inventory_id: int = Form(...), meters: float = Form(...)):
-    inv_item = run_query("SELECT cost_per_unit_uah FROM inventory WHERE id = %s", (inventory_id,))
-    cost_per_unit = inv_item[0]["cost_per_unit_uah"] if inv_item and inv_item[0]["cost_per_unit_uah"] is not None else 0.0
-    cost_uah = meters * cost_per_unit
-
-    run_query(
-        "INSERT INTO appointment_spoiled (appointment_id, inventory_id, meters, cost_uah) VALUES (%s, %s, %s, %s)",
-        (app_id, inventory_id, meters, cost_uah),
-        fetch=False
-    )
-    run_query("UPDATE inventory SET meters_left = meters_left - %s WHERE id = %s", (meters, inventory_id), fetch=False)
-    
-    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
-
-# --- НОВІ ФУНКЦІЇ ДЛЯ ФОТО ---
-
-@app.post("/appointment/{app_id}/upload_photo")
-async def upload_photo(app_id: int, photo_type: str = Form(...), file: UploadFile = File(...)):
-    content = await file.read()
-    run_query(
-        "INSERT INTO appointment_photos (appointment_id, photo_type, photo_data) VALUES (%s, %s, %s)",
-        (app_id, photo_type, psycopg2.Binary(content)),
-        fetch=False
-    )
-    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
-
-@app.get("/photo/{photo_id}")
-async def get_photo(photo_id: int):
-    res = run_query("SELECT photo_data FROM appointment_photos WHERE id = %s", (photo_id,))
-    if not res:
-        raise HTTPException(status_code=404, detail="Фото не знайдено")
-    return StreamingResponse(io.BytesIO(res[0]["photo_data"]), media_type="image/jpeg")
