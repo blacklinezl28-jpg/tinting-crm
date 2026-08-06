@@ -42,8 +42,8 @@ def run_query(query, params=(), fetch=True):
             cur.execute(query, params or ())
             if fetch:
                 data = cur.fetchall()
-                # Повертаємо чистий список словників, сумісний з Jinja2
-                return [dict(row) for row in data]
+                # Безпечне перетворення кожного рядка у чистий класичний dict для уникнення помилок у Jinja2
+                return [{str(k): v for k, v in dict(row).items()} for row in data]
             else:
                 conn.commit()
     except Exception as e:
