@@ -221,3 +221,18 @@ async def export_backup():
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename=crm_backup_{get_now_kyiv().strftime('%Y-%m-%d')}.json"}
     )
+@app.get("/appointment/{app_id}", response_class=HTMLResponse)
+async def appointment_detail(request: Request, app_id: int):
+    # Отримуємо дані запису
+    app = run_query("SELECT * FROM appointments WHERE id = %s", (app_id,))
+    if not app:
+        raise HTTPException(status_code=404, detail="Запис не знайдено")
+    
+    # Отримуємо доступні матеріали зі складу
+    inventory = run_query("SELECT * FROM inventory")
+    
+    return templates.TemplateResponse(request, "appointment_detail.html", {
+        "request": request, 
+        "app": app[0],
+        "inventory": inventory
+    })
