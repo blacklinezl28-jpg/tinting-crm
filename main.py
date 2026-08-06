@@ -104,7 +104,6 @@ async def dashboard(request: Request, month: str = None):
 
 @app.get("/appointments", response_class=HTMLResponse)
 async def appointments_page(request: Request):
-    # Виводимо активні записи або всі (тут показуємо не виконані/не скасовані для швидкої роботи, а загальна база буде в Звітах/Клієнтах)
     apps = run_query("SELECT * FROM appointments ORDER BY date DESC, time DESC")
     services = run_query("SELECT * FROM services")
     inventory = run_query("SELECT * FROM inventory")
@@ -133,7 +132,7 @@ async def add_appointment(
     created_at_str = get_now_kyiv().strftime("%Y-%m-%d %H:%M:%S")
     run_query(
         """INSERT INTO appointments (client_name, client_phone, car_brand, car_model, car_number, 
-                                     created_at, date, time, status, final_price, material_cost, net_profit, comment) 
+                                    created_at, date, time, status, final_price, material_cost, net_profit, comment) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)""",
         (client_name, client_phone, car_brand, car_model, car_number, created_at_str, date, time, status, final_price, final_price, comment),
         fetch=False
@@ -190,7 +189,6 @@ async def add_inventory(
 @app.get("/reports", response_class=HTMLResponse)
 async def reports_page(request: Request):
     rep = run_query("SELECT * FROM appointments ORDER BY id DESC")
-    # База клієнтів згрупована за телефонами та іменами з підрахунком загальної суми
     clients = run_query("""
         SELECT client_name, client_phone, 
                COUNT(id) as total_cars, 
@@ -221,14 +219,13 @@ async def export_backup():
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename=crm_backup_{get_now_kyiv().strftime('%Y-%m-%d')}.json"}
     )
+
 @app.get("/appointment/{app_id}", response_class=HTMLResponse)
 async def appointment_detail(request: Request, app_id: int):
-    # Отримуємо дані запису
     app = run_query("SELECT * FROM appointments WHERE id = %s", (app_id,))
     if not app:
         raise HTTPException(status_code=404, detail="Запис не знайдено")
     
-    # Отримуємо доступні матеріали зі складу
     inventory = run_query("SELECT * FROM inventory")
     
     return templates.TemplateResponse(request, "appointment_detail.html", {
@@ -236,3 +233,23 @@ async def appointment_detail(request: Request, app_id: int):
         "app": app[0],
         "inventory": inventory
     })
+
+@app.post("/appointment/{app_id}/use_material")
+async def use_material(app_id: int, inventory_id: int = Form(...), meters: float = Form(...)):
+    run_query("UPDATE inventory SET meters_left = meters_left - %s WHERE id = %s", (meters, inventory_id), fetch=False)
+    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
+
+@app.post("/appointment/{app_id}/add_spoiled")
+async def add_spoiled(app_id: int, inventory_id: int = Form(...), meters: float = Form(...)):
+    inv_item = run_query("SELECT cost_per_unit_uah FROM inventory WHERE id = %s", (inventory_id,))
+    cost_per_unit = inv_item[0]["cost_per_unit_uah"] if inv_item and inv_item[0]["cost_per_unit_uah"] is not None else 0.0
+    cost_uah = meters * cost_per_unit
+
+    run_query(
+        "INSERT INTO appointment_spoiled (appointment_id, inventory_id, meters, cost_uah) VALUES (%s, %s, %s, %s)",
+        (app_id, inventory_id, meters, cost_uah),
+        fetch=False
+    )
+    run_query("UPDATE inventory SET meters_left = meters_left - %s WHERE id = %s", (meters, inventory_id), fetch=False)
+    
+    return RedirectResponse(url=f"/appointment/{app_id}", status_code=303)
