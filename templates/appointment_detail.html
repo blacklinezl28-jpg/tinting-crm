@@ -47,6 +47,40 @@
                     <button type="submit" class="btn btn-danger w-100">Додати брак</button>
                 </div>
             </form>
+
+            <!-- Фотозвіт (До / Після) -->
+            <h5 class="mt-4">📸 Фотозвіт (До / Після)</h5>
+            <form action="/appointment/{{ app.id }}/upload_photo" method="post" enctype="multipart/form-data" class="row g-2 mb-3">
+                <div class="col-md-4">
+                    <select name="photo_type" class="form-select bg-dark text-light">
+                        <option value="До">До</option>
+                        <option value="Після">Після</option>
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <input type="file" name="file" class="form-control bg-dark text-light" accept="image/*" required>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary w-100">Завантажити</button>
+                </div>
+            </form>
+
+            <!-- Відображення завантажених фото -->
+            {% if photos %}
+            <div class="row g-3 mt-2">
+                {% for photo in photos %}
+                <div class="col-md-3 text-center">
+                    <div class="card bg-dark border-light p-2">
+                        <span class="badge bg-info mb-2 text-dark">{{ photo.photo_type }}</span>
+                        <a href="/photo/{{ photo.id }}" target="_blank">
+                            <img src="/photo/{{ photo.id }}" class="img-fluid rounded" style="max-height: 150px; object-fit: cover;" alt="Фото">
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
         </div>
     </div>
 </body>
